@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -23,8 +24,12 @@ import (
 	"time"
 
 	"spool/internal/config"
+	"spool/internal/namegen"
 	"spool/internal/server"
 	"spool/internal/store"
+	"spool/internal/textcheck"
+
+	"golang.org/x/sys/unix"
 )
 
 // webDist は build:pc 出力 (npm run build:pc → ui → pc/web/dist) を binary へ埋め込む
@@ -34,6 +39,11 @@ import (
 var webDist embed.FS
 
 func main() {
+	// `spool add` subcommand: stdin 全文を 1 件として保存する UI なし capture 経路。
+	// それ以外の起動 (引数なし / flag のみ) は既存の localhost server 起動のまま。
+	if len(os.Args) > 1 && os.Args[1] == "add" {
+		os.Exit(runAdd(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
@@ -181,4 +191,143 @@ func staticHandler() http.Handler {
 		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+// `spool add` — UI なし capture (§3.6, §6.6)。stdin 全文を 1 件として、HTTP server を
+// 経由せず store を直接使って root 直下の ordinary file へ保存する。成果は exit code
+// で区別する: 0 = saved, 1 = failed, 2 = uncertain。
+
+// taxonomy code (§6.5) は server (Unit 3) と同じ語彙を使う。CLI 固有の stdin_required
+// のみ追加。共通 helper への抽出は server の suffix loop と同じく今回行わない。
+const (
+	codeInvalidInput  = "invalid_input"
+	codeInvalidName   = "invalid_name"
+	codeNameConflict  = "name_conflict"
+	codeTooLarge      = "too_large"
+	codeRootMissing   = "root_missing"
+	codeRootChanged   = "root_changed"
+	codeIOError       = "io_error"
+	codeStdinRequired = "stdin_required"
+)
+
+// classifyAdd は store / textcheck の error を taxonomy code へ写像する。
+// server の classify と同じ対応。
+func classifyAdd(err error) string {
+	switch {
+	case errors.Is(err, store.ErrRootMissing):
+		return codeRootMissing
+	case errors.Is(err, store.ErrRootChanged):
+		return codeRootChanged
+	case errors.Is(err, store.ErrInvalidName):
+		return codeInvalidName
+	case errors.Is(err, store.ErrNameConflict):
+		return codeNameConflict
+	case errors.Is(err, textcheck.ErrNotUTF8):
+		return codeInvalidInput
+	case errors.Is(err, textcheck.ErrTooLarge):
+		return codeTooLarge
+	case errors.Is(err, store.ErrIO):
+		return codeIOError
+	default:
+		return codeIOError
+	}
+}
+
+// isTerminal は fd が terminal かを tcgetattr (TCGETS) で判定する。
+// char device 判定 (ModeCharDevice) は /dev/null も terminal 扱いしてしまうため、
+// terminal だけを正確に識別する ioctl を使う。非 terminal は error (ENOTTY 等) になる。
+func isTerminal(f *os.File) bool {
+	_, err := unix.IoctlGetTermios(int(f.Fd()), unix.TCGETS)
+	return err == nil
+}
+
+// runAdd は `spool add` の本体。root は CLI --root > config file > (無ければ error) の
+// 既存 config.Resolve で決める。port は add の概念に存在しない。
+func runAdd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("add", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var cli config.CLIOptions
+	fs.StringVar(&cli.Root, "root", "", "spool root directory")
+	if err := fs.Parse(args); err != nil {
+		return 1 // usage 出力済み
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "failed: %s: unexpected argument %q\n", codeInvalidInput, fs.Arg(0))
+		return 1
+	}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "root" {
+			cli.RootSet = true
+		}
+	})
+
+	file := config.File{}
+	if path, err := config.DefaultPath(); err == nil {
+		file, err = config.LoadFrom(path)
+		if err != nil {
+			fmt.Fprintf(stderr, "failed: %s: %v\n", codeIOError, err)
+			return 1
+		}
+	} else if !cli.RootSet {
+		// HOME が解決できない環境では config file なしで続行 (root が決まらなければ後段で error)。
+		log.Printf("config file unavailable: %v", err)
+	}
+	cfg, err := config.Resolve(cli, file)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed: %s: %v\n", codeInvalidInput, err)
+		return 1
+	}
+
+	// stdin が terminal なら入力待ちにしない。
+	if f, ok := stdin.(*os.File); ok && isTerminal(f) {
+		fmt.Fprintf(stderr, "failed: %s: stdin is a terminal\n", codeStdinRequired)
+		return 1
+	}
+	text, err := io.ReadAll(stdin)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed: %s: read stdin: %v\n", codeIOError, err)
+		return 1
+	}
+
+	st, err := store.Open(cfg.Root)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed: %s: %v\n", classifyAdd(err), err)
+		return 1
+	}
+	defer st.Close()
+
+	// captured_at は開始時に 1 度だけ取得し、suffix retry で時刻を進めない (§3.6)。
+	// 秒は常に "00" (minute 精度)。UTC 変換・timezone 表記はしない。
+	prefix, ok := namegen.ParseCapturedAt(time.Now().Format("2006-01-02T15:04:00"))
+	if !ok {
+		fmt.Fprintf(stderr, "failed: %s: internal: invalid captured_at\n", codeInvalidInput)
+		return 1
+	}
+	title := namegen.DeriveTitle(string(text))
+
+	// suffix loop は CLI command が所有 (§3.5)。store は EEXIST を ErrNameConflict で返す。
+	// 確定衝突のみ次の suffix へ。他の失敗は retry しない。overwrite は構造的に存在しない。
+	for suffix := 0; ; suffix++ {
+		name := namegen.CandidateName(prefix, title, suffix)
+		if !namegen.IsNameWithinLimit(name) {
+			// suffix を付けると 255 byte を超えるなら確定衝突で終了。byte limit 優先。
+			fmt.Fprintf(stderr, "failed: %s: no suffix fits 255 byte name limit\n", codeNameConflict)
+			return 1
+		}
+		res := st.Save(name, text)
+		if res.State == store.SaveFailed && errors.Is(res.Err, store.ErrNameConflict) {
+			continue
+		}
+		switch res.State {
+		case store.SaveSaved:
+			fmt.Fprintln(stdout, name)
+			return 0
+		case store.SaveUncertain:
+			fmt.Fprintf(stderr, "uncertain: save may have completed (%s)\n", classifyAdd(res.Err))
+			return 2
+		default: // SaveFailed
+			fmt.Fprintf(stderr, "failed: %s: %v\n", classifyAdd(res.Err), res.Err)
+			return 1
+		}
+	}
 }
