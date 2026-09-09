@@ -2,7 +2,7 @@
 
 Status: 実装計画 (2026-09-09)。上位基準は `docs/spool-design-baseline-v2.md` (Baseline)、次いで `DESIGN-v2.md`。本書は M2 の範囲抽出と実装順の決定のみを行い、DESIGN が明示していない機能・保証・正本を追加しない。
 
-現在地: Milestone 1 (spool Web: Browser UI + IndexedDB) 完了。Git checkpoint `4568fcb`。
+現在地: Milestone 1 (spool Web: Browser UI + IndexedDB) 完了 (`4568fcb`)、Milestone 2 (spool Local: Go process → ordinary files) 完了 + hardening 完了 (`601e20b`)、`spool add` CLI (`bce9e6b`)、KDE clipboard capture (`6fd602a`) 完了。PC 側の基本 capture path は実機確認済み。詳細は `docs/checkpoint-2026-09-09.md`。
 
 ---
 
