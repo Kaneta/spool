@@ -101,3 +101,102 @@ export function candidateName(prefix: string, title: string, suffix: number): st
 export function isNameWithinLimit(name: string): boolean {
   return utf8ByteLength(name) <= NAME_MAX_BYTES;
 }
+
+/** §6.4: 保存操作開始端末の local civil time を ISO minute 形式 ("YYYY-MM-DDTHH:MM:00") で返す。
+ * UTC getter は使わず、timezone offset・名は入れない。Invalid Date は null。 */
+export function capturedAtIso(d: Date): string | null {
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+  return (
+    `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:00`
+  );
+}
+
+/** §3.6: 生成規則 (§3.2–§3.5) の完全検証。1 つでも違えば false であり、分類は external 候補になる。
+ * Go 側 namegen.ValidateGeneratedFilename と同一規則 (共有 fixture で一致を固定)。 */
+export function validateGeneratedFilename(name: string): boolean {
+  if (!isNameWithinLimit(name)) return false;
+  if (!name.endsWith(".txt")) return false;
+  const body = name.slice(0, -4); // ".txt" を除いた部分
+  // prefix: 13 文字 (YYYYMMDD-HHMM) + separator '-'
+  if (body.length < 14 || body[13] !== "-" || !validCompact(body.slice(0, 13))) return false;
+  const rest = body.slice(14);
+  // suffix は rest の末尾の "~" + 数字列。suffix 形を検出したら suffix としてのみ判定する
+  // (「suffix grammar 不正 → external」。title への読み替えはしない)
+  const i = rest.lastIndexOf("~");
+  if (i >= 0 && isSuffixShaped(rest.slice(i))) {
+    if (!validSuffix(rest.slice(i))) return false;
+    return validTitle(rest.slice(0, i));
+  }
+  return validTitle(rest);
+}
+
+/** §6.4: read / delete 対象名の safe root-direct-child 検証。生成 format であることは要求しない。
+ * validateGeneratedFilename とは別物として統合しない。 */
+export function isValidRootDirectChildName(name: string): boolean {
+  if (name === "." || name === "..") return false;
+  for (const ch of name) {
+    const c = ch.codePointAt(0)!;
+    if (c === 0x2f || c === 0x5c || c === 0) return false; // / \ NUL
+  }
+  if (!isNameWithinLimit(name)) return false;
+  return name.endsWith(".txt");
+}
+
+/** 13 文字 "YYYYMMDD-HHMM" の構造と暦有効性。 */
+function validCompact(d: string): boolean {
+  if (d.length !== 13 || d[8] !== "-") return false;
+  if (!isAllDigits(d.slice(0, 8)) || !isAllDigits(d.slice(9))) return false;
+  const year = Number(d.slice(0, 4));
+  const month = Number(d.slice(4, 6));
+  const day = Number(d.slice(6, 8));
+  const hour = Number(d.slice(9, 11));
+  const minute = Number(d.slice(11, 13));
+  // Date は範囲外 field を正規化するため、roundtrip 一致で暦有効性 (2/30・25:00 等) を判定する
+  const date = new Date(year, month - 1, day, hour, minute);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day &&
+    date.getHours() === hour &&
+    date.getMinutes() === minute
+  );
+}
+
+/** tail が "~" + 数字列のみの形か。 */
+function isSuffixShaped(tail: string): boolean {
+  return tail.length >= 2 && tail[0] === "~" && isAllDigits(tail.slice(1));
+}
+
+/** suffix grammar: 2 桁 zero-pad (01–99) または 3 桁以上 (100 以上・leading zero なし)。
+ * "~1" / "~00" / "~010" / "~099" は生成され得ないため不可 (§3.5)。 */
+function validSuffix(tail: string): boolean {
+  const d = tail.slice(1);
+  if (d[0] === "0") return d.length === 2 && d[1] !== "0";
+  return d.length === 2 || d.length >= 3;
+}
+
+/** title 部分の規則: 生成結果が満たす文字条件 (§3.4)。 */
+function validTitle(t: string): boolean {
+  const cps = [...t];
+  if (cps.length === 0 || cps.length > TITLE_MAX_CODE_POINTS || utf8ByteLength(t) > TITLE_MAX_BYTES) return false;
+  if (cps[0] === "." || cps[0] === "-" || cps[0] === " " || cps[cps.length - 1] === " ") return false;
+  let prevSpace = false;
+  for (const ch of t) {
+    const c = ch.codePointAt(0)!;
+    if (c <= 0x1f || c === 0x7f || INVALID_CHARS.includes(ch)) return false;
+    if (ch === " ") {
+      if (prevSpace) return false; // 連続 space は生成されない
+      prevSpace = true;
+    } else {
+      prevSpace = false;
+    }
+  }
+  return true;
+}
+
+/** ASCII 数字のみの非空文字列か。 */
+function isAllDigits(s: string): boolean {
+  return s !== "" && [...s].every((ch) => ch >= "0" && ch <= "9");
+}

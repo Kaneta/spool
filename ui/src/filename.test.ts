@@ -1,92 +1,84 @@
+// fixture 読み込みは node runtime の readFileSync (bundler の JSON import magic には依存しない)。
+// @ts-expect-error -- @types/node を依存に追加しないため型解決を抑制する。実行時は vitest node runtime。
+import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
-import { candidateName, capturedAtPrefix, deriveTitle, isNameWithinLimit, utf8ByteLength } from "./filename";
+import {
+  candidateName,
+  capturedAtIso,
+  capturedAtPrefix,
+  deriveTitle,
+  isNameWithinLimit,
+  isValidRootDirectChildName,
+  validateGeneratedFilename,
+} from "./filename";
 
-// DESIGN-v2 §3.4 title 導出の純粋 test。
-it("空本文は paste", () => {
-  expect(deriveTitle("")).toBe("paste");
+// fixture は TS / Go 共有 (Go: pc/internal/namegen/namegen_test.go)。
+const vectors = JSON.parse(
+  readFileSync(new URL("../../test/vectors/filename.json", import.meta.url), "utf8"),
+) as {
+  titleCases: { text: string; want: string }[];
+  nameBuildingCases: { prefix: string; title: string; suffix: number; name: string; withinLimit: boolean }[];
+  generatedFilenameCases: { name: string; captured: boolean }[];
+  rootDirectChildCases: { name: string; safe: boolean }[];
+  capturedAtGenerationCases: {
+    invalid?: boolean;
+    year?: number;
+    month?: number;
+    day?: number;
+    hour?: number;
+    minute?: number;
+    iso: string | null;
+    prefix: string | null;
+  }[];
+};
+
+// DESIGN-v2 §3.4 title 導出 (共有 fixture)
+for (const [i, c] of vectors.titleCases.entries()) {
+  it(`deriveTitle ${i}`, () => {
+    expect(deriveTitle(c.text)).toBe(c.want);
+  });
+}
+
+// §3.5 candidate name と 255 byte 上限 (共有 fixture)
+for (const [i, c] of vectors.nameBuildingCases.entries()) {
+  it(`candidateName ${i}`, () => {
+    const name = candidateName(c.prefix, c.title, c.suffix);
+    expect(name).toBe(c.name);
+    expect(isNameWithinLimit(name)).toBe(c.withinLimit);
+  });
+}
+
+// §3.6 生成規則の完全検証 (共有 fixture)
+for (const [i, c] of vectors.generatedFilenameCases.entries()) {
+  it(`validateGeneratedFilename ${i}`, () => {
+    expect(validateGeneratedFilename(c.name)).toBe(c.captured);
+  });
+}
+
+// §3.6 分類整合: captured と判定される name は常に safe root-direct-child でもある
+it("captured cases are safe root-direct-child names", () => {
+  for (const c of vectors.generatedFilenameCases) {
+    if (c.captured) expect(isValidRootDirectChildName(c.name)).toBe(true);
+  }
 });
 
-it("全行空行は paste", () => {
-  expect(deriveTitle("  \n\t\n \n")).toBe("paste");
-});
+// §6.4 safe root-direct-child name (共有 fixture)
+for (const [i, c] of vectors.rootDirectChildCases.entries()) {
+  it(`isValidRootDirectChildName ${i}`, () => {
+    expect(isValidRootDirectChildName(c.name)).toBe(c.safe);
+  });
+}
 
-it("最初の非空行を使う", () => {
-  expect(deriveTitle("  world  \nsecond")).toBe("world");
-});
-
-it("control 文字を削除", () => {
-  expect(deriveTitle("a\u0007b\u0000c")).toBe("abc");
-});
-
-it("invalid 記号を削除", () => {
-  expect(deriveTitle('a/b\\c:d*e?f"g<h>i|j')).toBe("abcdefghij");
-});
-
-it("U+0009–U+000D は step 2 で削除される (space 置換ではない)", () => {
-  expect(deriveTitle("a\tb")).toBe("ab");
-});
-
-it("ASCII 空白の連続を一つに畳む", () => {
-  expect(deriveTitle("a   b   c")).toBe("a b c");
-});
-
-it("Unicode whitespace は空白扱いしない", () => {
-  expect(deriveTitle("a\u00a0b")).toBe("a\u00a0b");
-});
-
-it("先頭の . と - を削除", () => {
-  expect(deriveTitle("..--foo")).toBe("foo");
-});
-
-it("途中の . と - は保持", () => {
-  expect(deriveTitle("foo-bar.baz")).toBe("foo-bar.baz");
-});
-
-it("64 code point で切る", () => {
-  expect(deriveTitle("a".repeat(65))).toBe("a".repeat(64));
-});
-
-it("234 UTF-8 byte で切る (4-byte code point)", () => {
-  const title = deriveTitle("😀".repeat(80));
-  expect([...title].length).toBe(58);
-  expect(utf8ByteLength(title)).toBe(232);
-});
-
-it("切断で露出した末尾空白を削る", () => {
-  expect(deriveTitle("a".repeat(63) + " " + "b".repeat(10))).toBe("a".repeat(63));
-});
-
-// §3.2 / §3.3 / §3.5
-it("prefix は保存開始時の端末 local time minute", () => {
-  // local constructor の Date の local field がそのまま出る。実行環境の timezone に依存しない
-  expect(capturedAtPrefix(new Date(2026, 8, 9, 7, 5))).toBe("20260909-0705");
-});
-
-it("suffix なし → ~01 → ~99 → ~100", () => {
-  const prefix = "20260909-0705";
-  expect(candidateName(prefix, "paste", 0)).toBe("20260909-0705-paste.txt");
-  expect(candidateName(prefix, "paste", 1)).toBe("20260909-0705-paste~01.txt");
-  expect(candidateName(prefix, "paste", 99)).toBe("20260909-0705-paste~99.txt");
-  expect(candidateName(prefix, "paste", 100)).toBe("20260909-0705-paste~100.txt");
-});
-
-it("byte 上限内の最大 title でも suffix ~NN を受けられる", () => {
-  const name = candidateName("20260909-0705", deriveTitle("😀".repeat(80) + "ab"), 1);
-  expect(isNameWithinLimit(name)).toBe(true);
-  expect(utf8ByteLength(name)).toBeLessThanOrEqual(255);
-});
-
-it("234 byte title + suffix ~99 は ちょうど 255 byte (限界内)", () => {
-  const title = "😀".repeat(58) + "ab"; // 58 emoji (232 byte) + ab = 234 byte、64 code point 未満
-  expect(utf8ByteLength(title)).toBe(234);
-  const name = candidateName("20260909-1046", title, 99);
-  expect(utf8ByteLength(name)).toBe(255);
-  expect(isNameWithinLimit(name)).toBe(true);
-});
-
-it("234 byte title + suffix ~100 は 255 byte 超え (name_conflict になる境界)", () => {
-  const title = "😀".repeat(58) + "ab";
-  const name = candidateName("20260909-1046", title, 100);
-  expect(utf8ByteLength(name)).toBe(256);
-  expect(isNameWithinLimit(name)).toBe(false);
-});
+// §3.3 / §6.4: Browser 側の captured_at 生成 (Date local fields → ISO minute → prefix)。
+// 拒否系 (暦不正) は Go 側 parse の責務であり、TS では Date parser 拒否 test を作らない。
+for (const [i, c] of vectors.capturedAtGenerationCases.entries()) {
+  it(`capturedAtIso ${i}`, () => {
+    if (c.invalid) {
+      expect(capturedAtIso(new Date(NaN))).toBeNull();
+      return;
+    }
+    const d = new Date(c.year!, c.month! - 1, c.day!, c.hour!, c.minute!);
+    expect(capturedAtIso(d)).toBe(c.iso);
+    expect(capturedAtPrefix(d)).toBe(c.prefix);
+  });
+}

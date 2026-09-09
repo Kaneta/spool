@@ -1,0 +1,424 @@
+{
+  "titleCases": [
+    {
+      "text": "",
+      "want": "paste"
+    },
+    {
+      "text": "  \n\t\n \n",
+      "want": "paste"
+    },
+    {
+      "text": "  world  \nsecond",
+      "want": "world"
+    },
+    {
+      "text": "  \ta\t \nsecond",
+      "want": "a"
+    },
+    {
+      "text": "a\u0007b\u0000c",
+      "want": "abc"
+    },
+    {
+      "text": "a/b\\c:d*e?f\"g<h>i|j",
+      "want": "abcdefghij"
+    },
+    {
+      "text": "a\tb",
+      "want": "ab"
+    },
+    {
+      "text": "a   b   c",
+      "want": "a b c"
+    },
+    {
+      "text": "a b",
+      "want": "a b"
+    },
+    {
+      "text": " \nreal",
+      "want": " "
+    },
+    {
+      "text": "..--foo",
+      "want": "foo"
+    },
+    {
+      "text": "foo-bar.baz",
+      "want": "foo-bar.baz"
+    },
+    {
+      "text": ". x",
+      "want": " x"
+    },
+    {
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "want": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "text": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "want": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    {
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbb",
+      "want": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "text": "hello  world \nsecond line",
+      "want": "hello world"
+    }
+  ],
+  "nameBuildingCases": [
+    {
+      "prefix": "20260909-0705",
+      "title": "paste",
+      "suffix": 0,
+      "name": "20260909-0705-paste.txt",
+      "withinLimit": true
+    },
+    {
+      "prefix": "20260909-0705",
+      "title": "paste",
+      "suffix": 1,
+      "name": "20260909-0705-paste~01.txt",
+      "withinLimit": true
+    },
+    {
+      "prefix": "20260909-0705",
+      "title": "paste",
+      "suffix": 2,
+      "name": "20260909-0705-paste~02.txt",
+      "withinLimit": true
+    },
+    {
+      "prefix": "20260909-0705",
+      "title": "paste",
+      "suffix": 99,
+      "name": "20260909-0705-paste~99.txt",
+      "withinLimit": true
+    },
+    {
+      "prefix": "20260909-0705",
+      "title": "paste",
+      "suffix": 100,
+      "name": "20260909-0705-paste~100.txt",
+      "withinLimit": true
+    },
+    {
+      "prefix": "20260909-0705",
+      "title": "paste",
+      "suffix": 101,
+      "name": "20260909-0705-paste~101.txt",
+      "withinLimit": true
+    },
+    {
+      "prefix": "20260909-0705",
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀ab",
+      "suffix": 99,
+      "name": "20260909-0705-😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀ab~99.txt",
+      "withinLimit": true
+    },
+    {
+      "prefix": "20260909-0705",
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀ab",
+      "suffix": 100,
+      "name": "20260909-0705-😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀ab~100.txt",
+      "withinLimit": false
+    },
+    {
+      "prefix": "20260909-0705",
+      "title": "ααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααα",
+      "suffix": 1,
+      "name": "20260909-0705-ααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααα~01.txt",
+      "withinLimit": true
+    },
+    {
+      "prefix": "20260909-0705",
+      "title": "ααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααα",
+      "suffix": 100,
+      "name": "20260909-0705-ααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααααα~100.txt",
+      "withinLimit": false
+    }
+  ],
+  "generatedFilenameCases": [
+    {
+      "name": "20260908-1234-paste.txt",
+      "captured": true
+    },
+    {
+      "name": "20260908-1234-paste~01.txt",
+      "captured": true
+    },
+    {
+      "name": "20260908-1234-paste~99.txt",
+      "captured": true
+    },
+    {
+      "name": "20260908-1234-paste~100.txt",
+      "captured": true
+    },
+    {
+      "name": "20260908-1234-my note.txt",
+      "captured": true
+    },
+    {
+      "name": "20260908-1234-foo-bar.baz.txt",
+      "captured": true
+    },
+    {
+      "name": "20260908-1234-a~b.txt",
+      "captured": true
+    },
+    {
+      "name": "20991231-2359-paste.txt",
+      "captured": true
+    },
+    {
+      "name": "20240229-0000-x.txt",
+      "captured": true
+    },
+    {
+      "name": "20260230-1234-x.txt",
+      "captured": false
+    },
+    {
+      "name": "2026-09-08-foo.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234-.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234-x~1.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234-x~00.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234-x~010.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234-x~099.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234--foo.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234-.foo.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234-x  y.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234- x.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234-😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀.txt",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234-x~01.TXT",
+      "captured": false
+    },
+    {
+      "name": "20260908-1234-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt",
+      "captured": false
+    }
+  ],
+  "rootDirectChildCases": [
+    {
+      "name": "my notes.txt",
+      "safe": true
+    },
+    {
+      "name": "20260908-1234-abc.txt",
+      "safe": true
+    },
+    {
+      "name": ".hidden.txt",
+      "safe": true
+    },
+    {
+      "name": "../a.txt",
+      "safe": false
+    },
+    {
+      "name": "a/b.txt",
+      "safe": false
+    },
+    {
+      "name": "a\\b.txt",
+      "safe": false
+    },
+    {
+      "name": "a\u0000b.txt",
+      "safe": false
+    },
+    {
+      "name": ".",
+      "safe": false
+    },
+    {
+      "name": "..",
+      "safe": false
+    },
+    {
+      "name": "notes.md",
+      "safe": false
+    },
+    {
+      "name": "x.TXT",
+      "safe": false
+    },
+    {
+      "name": "x.txt ",
+      "safe": false
+    },
+    {
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt",
+      "safe": false
+    }
+  ],
+  "capturedAtGenerationCases": [
+    {
+      "year": 2026,
+      "month": 9,
+      "day": 9,
+      "hour": 7,
+      "minute": 5,
+      "iso": "2026-09-09T07:05:00",
+      "prefix": "20260909-0705"
+    },
+    {
+      "year": 2026,
+      "month": 1,
+      "day": 5,
+      "hour": 0,
+      "minute": 0,
+      "iso": "2026-01-05T00:00:00",
+      "prefix": "20260105-0000"
+    },
+    {
+      "year": 2024,
+      "month": 2,
+      "day": 29,
+      "hour": 23,
+      "minute": 59,
+      "iso": "2024-02-29T23:59:00",
+      "prefix": "20240229-2359"
+    },
+    {
+      "year": 2099,
+      "month": 12,
+      "day": 31,
+      "hour": 0,
+      "minute": 0,
+      "iso": "2099-12-31T00:00:00",
+      "prefix": "20991231-0000"
+    },
+    {
+      "year": 2026,
+      "month": 9,
+      "day": 9,
+      "hour": 7,
+      "minute": 59,
+      "iso": "2026-09-09T07:59:00",
+      "prefix": "20260909-0759"
+    },
+    {
+      "invalid": true,
+      "iso": null,
+      "prefix": null
+    }
+  ],
+  "capturedAtParsingCases": [
+    {
+      "input": "2026-09-09T07:05:00",
+      "ok": true,
+      "prefix": "20260909-0705"
+    },
+    {
+      "input": "2026-01-05T00:00:00",
+      "ok": true,
+      "prefix": "20260105-0000"
+    },
+    {
+      "input": "2024-02-29T07:05:00",
+      "ok": true,
+      "prefix": "20240229-0705"
+    },
+    {
+      "input": "2099-12-31T23:59:00",
+      "ok": true,
+      "prefix": "20991231-2359"
+    },
+    {
+      "input": "2026-02-30T07:05:00",
+      "ok": false,
+      "prefix": null
+    },
+    {
+      "input": "2026-13-01T07:05:00",
+      "ok": false,
+      "prefix": null
+    },
+    {
+      "input": "2026-01-01T25:00:00",
+      "ok": false,
+      "prefix": null
+    },
+    {
+      "input": "2026-01-01T07:60:00",
+      "ok": false,
+      "prefix": null
+    },
+    {
+      "input": "2026-01-01T07:05:30",
+      "ok": false,
+      "prefix": null
+    },
+    {
+      "input": "2026-01-01T07:05:00Z",
+      "ok": false,
+      "prefix": null
+    },
+    {
+      "input": "2026-01-01T07:05:00+09:00",
+      "ok": false,
+      "prefix": null
+    },
+    {
+      "input": "2026-1-1T07:05:00",
+      "ok": false,
+      "prefix": null
+    },
+    {
+      "input": "",
+      "ok": false,
+      "prefix": null
+    },
+    {
+      "input": "20260909-0705",
+      "ok": false,
+      "prefix": null
+    }
+  ]
+}
