@@ -4,3 +4,4 @@ ui/dist/
 .DS_Store
 ui/test-results/
 ui/playwright-report/
+pc/spool
