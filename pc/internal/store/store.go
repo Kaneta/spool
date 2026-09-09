@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -136,6 +137,11 @@ func (s *Store) List() ([]RecordInfo, error) {
 	dir := os.NewFile(uintptr(df), ".")
 	defer dir.Close() // 開いた fd はこの list 操作内で閉じる。pin した dirfd とは別物
 	names, err := dir.Readdirnames(-1)
+	// io.EOF は正常終了。EOF 以外 (filesystem I/O error 等) は partial list を
+	// 「正常な完全一覧」として返さず、呼び出し側へ error を返す (§6.7)。
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("%w: readdir: %v", ErrIO, err)
+	}
 	sort.Strings(names)
 	records := make([]RecordInfo, 0, len(names))
 	for _, name := range names {

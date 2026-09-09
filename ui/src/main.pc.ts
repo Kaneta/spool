@@ -30,6 +30,10 @@ const deleteButton = document.querySelector<HTMLButtonElement>("#delete")!;
 const readResult = document.querySelector<HTMLParagraphElement>("#read-result")!;
 
 let selectedName: string | null = null; // ephemeral は選択 state のみ。本文は毎回 server から読む
+// 操作単位の小さな generation (§4.4): 最後に開始した select / delete だけが選択 state と
+// read 表示を更新できる。stale な完了が後続の選択を壊さないためのもの。永続化しない。
+let selectGeneration = 0;
+let deleteGeneration = 0;
 
 const token = tokenFromHash(location.hash); // fragment は HTTP server へ送られない (§9)
 if (token === null) {
@@ -133,13 +137,16 @@ async function refreshList(): Promise<void> {
 }
 
 async function selectRecord(name: string): Promise<void> {
+  const generation = ++selectGeneration; // 新しい選択が開始したら前の read 完了は無効
   let text: string;
   try {
     text = await readRecord(token ?? "", name); // 選択のたびに現在の server 内容を取得する
   } catch (e) {
-    showActionFailed(describe(e)); // 選択表示・一覧は保持
+    // 失敗表示は「最後に開始した操作」のものだけにする
+    if (generation === selectGeneration) showActionFailed(describe(e)); // 選択表示・一覧は保持
     return;
   }
+  if (generation !== selectGeneration) return; // stale read: 後続の選択を上書きしない
   selectedName = name;
   readArea.hidden = false;
   readName.textContent = name;
@@ -177,19 +184,22 @@ async function deleteSelected(): Promise<void> {
   const name = selectedName;
   if (name === null) return;
   if (!window.confirm(`Delete ${name}?`)) return; // 標準確認のみ。trash・undo・独自 modal は作らない
+  const generation = ++deleteGeneration; // delete 対象 snapshot。完了時は「対象が今も選択中」のときだけ clear
   try {
     await deleteRecord(token ?? "", name);
   } catch (e) {
-    showActionFailed(describe(e)); // delete 失敗なら選択を勝手に消さない
+    if (generation === deleteGeneration) showActionFailed(describe(e)); // delete 失敗なら選択を勝手に消さない
     return;
   }
-  // 削除成功後のみ: 選択 clear → read area clear → list refresh
-  selectedName = null;
-  readArea.hidden = true;
-  readName.textContent = "";
-  readText.textContent = "";
+  // 削除中に別 record を選んだ場合は新 selection を壊さない。list refresh は常に実行する。
+  if (generation === deleteGeneration && selectedName === name) {
+    selectedName = null;
+    readArea.hidden = true;
+    readName.textContent = "";
+    readText.textContent = "";
+    updateActionButtons();
+  }
   await refreshList();
-  updateActionButtons();
 }
 
 function showActionFailed(cause: string): void {

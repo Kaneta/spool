@@ -241,3 +241,70 @@ test("missing token: UI shows unavailable state", async ({ browser }) => {
   await expect(p.locator("#save")).toBeDisabled();
   await context.close();
 });
+
+// §4.4 read race — A の read response を遅延させ、B を先に表示させる。A の遅い完了が
+// 後続の B 表示を上書きしないことを実 browser で固定する。
+test("read race: stale response does not overwrite newer selection", async () => {
+  await page.route("**/api/records/*", async (route) => {
+    if (route.request().url().includes("/api/records/A-slow")) {
+      await new Promise((r) => setTimeout(r, 500)); // A の応答だけ遅延
+    }
+    await route.continue();
+  });
+  fs.writeFileSync(path.join(root, "A-slow.txt"), "A body\n");
+  fs.writeFileSync(path.join(root, "B-fast.txt"), "B body\n");
+  await page.click("#refresh");
+  await recordButton("A-slow.txt").click(); // read A 開始 (応答は遅延)
+  await selectAndWait("B-fast.txt"); // B を先に完了させる
+  await expect(page.locator("#read-name")).toHaveText("B-fast.txt", { timeout: 2_000 });
+  await page.waitForTimeout(800); // A の遅延応答が届くのを待つ
+  await expect(page.locator("#read-name")).toHaveText("B-fast.txt"); // 上書きされない
+  expect(await readTextContent()).toBe("B body\n");
+  await page.unroute("**/api/records/*");
+  await removeRootFile("A-slow.txt");
+  await removeRootFile("B-fast.txt");
+});
+
+// §4.4 delete race — A の delete 応答を遅延させ、その間に B を選ぶ。A の完了が
+// B の選択・read 表示を clear しないことを固定する。
+test("delete race: old delete completion keeps newer selection", async () => {
+  await page.route("**/api/records/*", async (route) => {
+    if (route.request().method() === "DELETE" && route.request().url().includes("A-del")) {
+      await new Promise((r) => setTimeout(r, 500)); // A の delete 応答だけ遅延
+    }
+    await route.continue();
+  });
+  fs.writeFileSync(path.join(root, "A-del.txt"), "A body\n");
+  fs.writeFileSync(path.join(root, "B-keep.txt"), "B body\n");
+  await page.click("#refresh");
+  await selectAndWait("A-del.txt");
+  dialogAction = "accept";
+  await page.click("#delete"); // A delete 開始 (応答は遅延)
+  await selectAndWait("B-keep.txt"); // delete 完了前に B を選択
+  await page.waitForTimeout(800); // A の delete 完了を待つ
+  await expect(recordButton("A-del.txt")).toHaveCount(0); // A は list から消える
+  await expect(page.locator("#read-name")).toHaveText("B-keep.txt"); // B 表示は維持
+  expect(await readTextContent()).toBe("B body\n");
+  dialogAction = "dismiss";
+  await page.unroute("**/api/records/*");
+  await removeRootFile("B-keep.txt");
+});
+
+// §10.5 auth rejection — wrong token の save は Uncertain ではなく Failed 表示。
+// transport 失敗 (uncertain) と認証拒否 (確定未保存) を分類する。
+test("auth rejection: wrong token save shows Failed, not Uncertain", async () => {
+  await page.route("**/api/records", async (route) => {
+    if (route.request().method() === "POST") {
+      const headers = await route.request().allHeaders();
+      await route.continue({ headers: { ...headers, "x-spool-token": "wrong-token" } });
+      return;
+    }
+    await route.continue();
+  });
+  await page.fill("#text", "rejected body");
+  await page.click("#save");
+  await expect(page.locator("#result")).toContainText("Failed");
+  await expect(page.locator("#result")).not.toContainText("Uncertain");
+  expect(await page.inputValue("#text")).toBe("rejected body"); // textarea 保持
+  await page.unroute("**/api/records");
+});

@@ -153,6 +153,12 @@ func TestTokenNegative(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("wrong token: status = %d", rec.Code)
 	}
+	// POST 拒否は save result 契約で応答する (§10.5)。Store 未到達 = 未保存確定 → failed。
+	var save saveEnvelope
+	decode(t, rec, &save)
+	if save.Result != "failed" || save.Code != "forbidden" {
+		t.Fatalf("POST wrong token: result = %q code = %q", save.Result, save.Code)
+	}
 
 	// store 操作が起きていないこと: 追加 file がなく、既存 file も消えていない。
 	names := rootEntries(t, root)
@@ -178,10 +184,45 @@ func TestHostNegative(t *testing.T) {
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("host %q: status = %d", host, rec.Code)
 		}
+	}
+}
+
+// C2: POST save の Host 拒否 → 403 + save contract (result=failed)。file は作られない。
+func TestHostNegativeSaveContract(t *testing.T) {
+	s, _, root := newTestServer(t)
+	for _, host := range []string{"localhost:54321", "127.0.0.1:9999", ""} {
+		rec := do(t, s, "POST", "http://"+testHost+"/api/records",
+			`{"text":"x","captured_at":"2026-09-09T07:05:00"}`, func(req *http.Request) {
+				req.Host = host
+			})
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("POST host %q: status = %d", host, rec.Code)
+		}
+		var env saveEnvelope
+		decode(t, rec, &env)
+		if env.Result != "failed" || env.Code != "forbidden" {
+			t.Fatalf("POST host %q: result = %q code = %q", host, env.Result, env.Code)
+		}
+	}
+	if names := rootEntries(t, root); len(names) != 0 {
+		t.Fatalf("store touched on host rejection: %v", names)
+	}
+}
+
+// C3 (旧 C の tail): GET health Host negative は taxonomy envelope のまま (save result を付けない)。
+func TestHostNegativeGetEnvelope(t *testing.T) {
+	s, _, _ := newTestServer(t)
+	for _, host := range []string{"localhost:54321", "127.0.0.1:9999", "", "[::1]:54321", "example.com:54321"} {
+		rec := do(t, s, "GET", "http://"+testHost+"/api/health", "", func(req *http.Request) {
+			req.Host = host
+		})
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("host %q: status = %d", host, rec.Code)
+		}
 		var env errEnvelope
 		decode(t, rec, &env)
-		if env.Error.Code != "forbidden" {
-			t.Fatalf("host %q: code = %q", host, env.Error.Code)
+		if env.Error.Code != "forbidden" || env.Error.Code == "" {
+			t.Fatalf("GET host %q: envelope code = %q", host, env.Error.Code)
 		}
 	}
 }
@@ -202,11 +243,22 @@ func TestOriginNegative(t *testing.T) {
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("POST origin %q: status = %d", origin, rec.Code)
 		}
+		// POST 拒否は save result 契約。DELETE 拒否は taxonomy envelope のまま。
+		var env saveEnvelope
+		decode(t, rec, &env)
+		if env.Result != "failed" || env.Code != "forbidden" {
+			t.Fatalf("POST origin %q: result = %q code = %q", origin, env.Result, env.Code)
+		}
 		rec = do(t, s, "DELETE", "http://"+testHost+"/api/records/"+name, "", func(req *http.Request) {
 			req.Header.Set("Origin", origin)
 		})
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("DELETE origin %q: status = %d", origin, rec.Code)
+		}
+		var errEnv errEnvelope
+		decode(t, rec, &errEnv)
+		if errEnv.Error.Code != "forbidden" {
+			t.Fatalf("DELETE origin %q: envelope code = %q", origin, errEnv.Error.Code)
 		}
 	}
 	rec := do(t, s, "GET", "http://"+testHost+"/api/records", "", nil)
@@ -230,6 +282,38 @@ func TestPostSaveWritesRealFile(t *testing.T) {
 		t.Fatalf("response = %+v", env)
 	}
 	requireSavedOnDisk(t, root, env.Name, text)
+}
+
+// E2: JSON escape で wire 上で膨らむ正当な decoded text (≤256 KiB) が HTTP body limit で
+// 拒否されないこと。decoded ≤ 256 KiB → accepted、> 256 KiB → too_large を分けて固定する。
+func TestPostWireLimitVsDecodedLimit(t *testing.T) {
+	s, _, root := newTestServer(t)
+	// 引用符のみの text: JSON.stringify で全 byte が \" に escape され 2 倍になる。
+	quoted := strings.Repeat(`"`, 140*1024) // decoded 143,360 byte ≤ 262,144
+	body := fmt.Sprintf(`{"text":%q,"captured_at":"2026-09-09T07:05:00"}`, quoted)
+	rec := do(t, s, "POST", "http://"+testHost+"/api/records", body, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("escaped 140 KiB text: status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	var env saveEnvelope
+	decode(t, rec, &env)
+	if env.Result != "saved" {
+		t.Fatalf("escaped 140 KiB text: result = %q", env.Result)
+	}
+	// decoded 256 KiB + 1 byte → too_large (wire limit に余裕があっても decoded 上限は維持)。
+	over := strings.Repeat("a", textcheck.MaxTextBytes+1)
+	body = fmt.Sprintf(`{"text":%q,"captured_at":"2026-09-09T07:05:00"}`, over)
+	rec = do(t, s, "POST", "http://"+testHost+"/api/records", body, nil)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("decoded over limit: status = %d", rec.Code)
+	}
+	decode(t, rec, &env)
+	if env.Result != "failed" || env.Code != "too_large" {
+		t.Fatalf("decoded over limit: result = %q code = %q", env.Result, env.Code)
+	}
+	if names := rootEntries(t, root); len(names) != 1 {
+		t.Fatalf("store contents: %v", names)
+	}
 }
 
 // F: 同一 captured_at / 同一 title で複数 POST → base / ~01 / ~02。overwrite なし。

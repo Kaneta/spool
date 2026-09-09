@@ -18,10 +18,11 @@ import (
 	"spool/internal/textcheck"
 )
 
-// maxRequestBody は POST body の HTTP レベル上限: text 256 KiB (**PROVISIONAL**,
-// textcheck.MaxTextBytes) + JSON overhead の余裕。局所的な定数であり、wire format は
-// この値に依存しない (§6.4)。
-const maxRequestBody = textcheck.MaxTextBytes + 8*1024
+// maxRequestBody は POST body の HTTP レベル上限 (DoS 防止用の実装上の値。製品
+// contract は decoded text ≤ textcheck.MaxTextBytes であり、wire limit は外へ露出しない)。
+// JSON string の最悪 case は全 byte が escape で 6 倍になる ("\u007f" 等) ので、
+// decoded 上限と wire 上限は分離する (正当な 256 KiB 本文を escape 量で拒否しない)。
+const maxRequestBody = 6*textcheck.MaxTextBytes + 8*1024
 
 // save result 区分 (§6.4, §10.5) と error taxonomy (§6.5)。
 // taxonomy 外の code は追加しない。unavailable は client 側分類であり server は発行しない。
@@ -78,25 +79,38 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // secure は API 共通 security check (§6.3, §10)。Host 完全一致 → token 完全一致 →
 // state-changing request (POST / DELETE) の Origin 完全一致。
 // いずれかの失敗で handler 本体 (したがって store) には到達させない。
+// POST の拒否は保存結果契約 (§6.4, §10.5) に合わせる: security check で handler に
+// 到達していない時点で「保存未成立が確定」であるため、client は result=failed を
+// uncertain ではなく確定失敗として分類する。status (401/403) は §6.3 のまま維持。
 func (s *Server) secure(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != s.host {
-			writeAPIError(w, http.StatusForbidden, codeForbidden, "host mismatch")
+			s.writeRejection(w, r, http.StatusForbidden, "host mismatch")
 			return
 		}
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Spool-Token")), []byte(s.token)) != 1 {
 			// 401 は token mismatch 専用 (§6.3)。code は taxonomy の forbidden。
-			writeAPIError(w, http.StatusUnauthorized, codeForbidden, "token missing or mismatch")
+			s.writeRejection(w, r, http.StatusUnauthorized, "token missing or mismatch")
 			return
 		}
 		if r.Method == http.MethodPost || r.Method == http.MethodDelete {
 			if r.Header.Get("Origin") != s.origin {
-				writeAPIError(w, http.StatusForbidden, codeForbidden, "origin mismatch")
+				s.writeRejection(w, r, http.StatusForbidden, "origin mismatch")
 				return
 			}
 		}
 		h(w, r)
 	}
+}
+
+// writeRejection は taxonomy envelope を書くが、POST /api/records の拒否のみ
+// save contract (result=failed) で応答する。GET / DELETE の契約は変更しない。
+func (s *Server) writeRejection(w http.ResponseWriter, r *http.Request, status int, message string) {
+	if r.Method == http.MethodPost && r.URL.Path == "/api/records" {
+		writeJSON(w, status, saveResponse{Result: resultFailed, Code: codeForbidden, Message: message})
+		return
+	}
+	writeAPIError(w, status, codeForbidden, message)
 }
 
 // handleHealth は最小の JSON 応答 (§6.4)。

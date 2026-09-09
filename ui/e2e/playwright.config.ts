@@ -5,8 +5,7 @@
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
-  testDir: ".",
-  testMatch: "pc.spec.ts",
+  testMatch: "*.spec.ts", // pc.spec.ts (実 Go + PC build) と mobile.spec.ts (Bug 5 fault injection)
   timeout: 30_000,
   workers: 1, // 1 process / 1 root を全 test で共有するため直列
   use: {

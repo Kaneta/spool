@@ -23,27 +23,52 @@ const shellState = document.querySelector<HTMLParagraphElement>("#shell-state")!
 
 let selectedName: string | null = null; // ephemeral は選択 state のみ。一覧は毎回 IndexedDB から読む (第二正本を作らない)
 
-const db = await openDatabase();
+// openDatabase 失敗時は fallback / 別 store へ逃がさず、利用不能を明示して止める (Baseline §6)。
+// 成功時のみ、後続の初期化 (event 登録 / 一覧再構築 / persistence / app shell) を行う。
+// 失敗時は requestPersistence も呼ばない: storageState は利用不能表示を保持する
+// (persistence 結果表示で「利用不能」を上書きしない。shell 表示は別要素のため registerAppShell は実行する)。
+let db: IDBDatabase | null = null;
+try {
+  db = await openDatabase();
+} catch (e) {
+  storageState.textContent = `Storage unavailable: IndexedDB open failed (${e instanceof Error ? `${e.name}: ${e.message}` : String(e)})`;
+  setDisabled(true);
+  registerAppShell(); // §5.5: offline app shell。準備失敗は shell 機能のみに影響し保存と混ぜない
+} finally {
+  if (db !== null) {
+    setupStorageUi(db);
+  }
+}
 
-saveButton.addEventListener("click", () => {
-  void saveNew();
-});
-copyButton.addEventListener("click", () => {
-  void copySelected();
-});
-deleteButton.addEventListener("click", () => {
-  void deleteSelected();
-});
-exportTxtButton.addEventListener("click", () => {
-  void exportSelected();
-});
-exportAllButton.addEventListener("click", () => {
-  void exportAllRecords();
-});
-await refreshList(); // reload 後は IndexedDB から一覧を再構築する
+function setDisabled(disabled: boolean): void {
+  saveButton.disabled = disabled;
+  copyButton.disabled = disabled;
+  deleteButton.disabled = disabled;
+  exportTxtButton.disabled = disabled;
+  exportAllButton.disabled = disabled;
+  updateActionButtons();
+}
 
-void requestPersistence(); // §5.5: 初回利用準備。eviction されにくくする要求であり保存成功条件ではない (Baseline §6)
-registerAppShell(); // §5.5: offline app shell。準備失敗は shell 機能のみに影響し保存と混ぜない
+function setupStorageUi(database: IDBDatabase): void {
+  saveButton.addEventListener("click", () => {
+    void saveNew();
+  });
+  copyButton.addEventListener("click", () => {
+    void copySelected();
+  });
+  deleteButton.addEventListener("click", () => {
+    void deleteSelected();
+  });
+  exportTxtButton.addEventListener("click", () => {
+    void exportSelected();
+  });
+  exportAllButton.addEventListener("click", () => {
+    void exportAllRecords();
+  });
+  void refreshList(database); // reload 後は IndexedDB から一覧を再構築する
+  void requestPersistence(); // §5.5: 初回利用準備。eviction されにくくする要求であり保存成功条件ではない (Baseline §6)
+  registerAppShell(); // §5.5: offline app shell。準備失敗は shell 機能のみに影響し保存と混ぜない
+}
 
 async function saveNew(): Promise<void> {
   const text = textarea.value; // snapshot: 保存内容と完了時の比較はこれで固定 (§4.4)
@@ -59,14 +84,14 @@ async function saveNew(): Promise<void> {
       }
       let outcome: AddOutcome;
       try {
-        outcome = await addRecord(db, { name, text }); // tx 開始自体の失敗 (unavailable / invalid state) も保存未成立
+        outcome = await addRecord(db!, { name, text }); // tx 開始自体の失敗 (unavailable / invalid state) も保存未成立
       } catch (e) {
         showFailed("save_failed", e instanceof Error ? `${e.name}: ${e.message}` : String(e));
         return;
       }
       if (outcome.kind === "committed") {
         showSaved(name, text);
-        await refreshList(); // tx complete → Saved 表示 → list refresh。失敗時は refresh しない
+        await refreshList(db!); // tx complete → Saved 表示 → list refresh。失敗時は refresh しない
         return;
       }
       if (outcome.kind === "conflict") continue; // 同じ時刻・同じ title のまま suffix を進める (§3.5)
@@ -91,9 +116,8 @@ function showFailed(cause: string, detail: string): void {
   result.textContent = `Failed: ${cause} (${detail})`; // textarea は保持する
 }
 
-
-async function refreshList(): Promise<void> {
-  const names = (await listRecords(db)).toReversed(); // name 降順 = 新しい record が上 (§4.3)
+async function refreshList(database: IDBDatabase): Promise<void> {
+  const names = (await listRecords(database)).toReversed(); // name 降順 = 新しい record が上 (§4.3)
   const fragment = document.createDocumentFragment();
   for (const name of names) {
     const li = document.createElement("li");
@@ -111,7 +135,7 @@ async function refreshList(): Promise<void> {
 }
 
 async function selectRecord(name: string): Promise<void> {
-  const record = await readRecord(db, name); // 選択のたびに現在の IndexedDB から読む。list は text を持たない
+  const record = await readRecord(db!, name); // 選択のたびに現在の IndexedDB から読む。list は text を持たない
   if (record === undefined) {
     selectedName = null;
     readArea.hidden = true;
@@ -137,7 +161,7 @@ function markSelected(): void {
 async function copySelected(): Promise<void> {
   const name = selectedName;
   if (name === null) return;
-  const record = await readRecord(db, name); // copy 時も現在の IndexedDB から読む (cache state は作らない)
+  const record = await readRecord(db!, name); // copy 時も現在の IndexedDB から読む (cache state は作らない)
   if (record === undefined) {
     showActionFailed("not_found", `${name} は既に存在しない`);
     return;
@@ -154,7 +178,7 @@ async function deleteSelected(): Promise<void> {
   const name = selectedName;
   if (name === null) return;
   if (!window.confirm(`Delete ${name}?`)) return; // 標準確認のみ。trash・undo・独自 modal は作らない
-  const outcome = await deleteRecord(db, name);
+  const outcome = await deleteRecord(db!, name);
   if (outcome.kind !== "deleted") {
     const e = outcome.error;
     showActionFailed("delete_failed", e instanceof Error ? `${e.name}: ${e.message}` : String(e)); // 一覧・選択表示は変更しない
@@ -165,7 +189,7 @@ async function deleteSelected(): Promise<void> {
   readArea.hidden = true;
   readName.textContent = "";
   readText.textContent = "";
-  await refreshList();
+  await refreshList(db!);
   updateActionButtons();
 }
 
@@ -183,7 +207,7 @@ function updateActionButtons(): void {
 async function exportSelected(): Promise<void> {
   const name = selectedName;
   if (name === null) return;
-  const record = await readRecord(db, name); // export 時も現在の IndexedDB から読む
+  const record = await readRecord(db!, name); // export 時も現在の IndexedDB から読む
   if (record === undefined) {
     showActionFailed("not_found", `${name} は既に存在しない`);
     return;
@@ -199,7 +223,7 @@ async function exportSelected(): Promise<void> {
 /** §5.4: 全 record を zip で download。entry は name → text の .txt のみ (manifest・metadata なし)。 */
 async function exportAllRecords(): Promise<void> {
   try {
-    const records = await readAllRecords(db);
+    const records = await readAllRecords(db!);
     const blob = await downloadZip(records.map((r) => ({ name: r.name, input: r.text }))).blob(); // client-zip は STORE (無圧縮) 専用
     downloadBlob(blob, "spool-export.zip"); // 固定名。時刻入り・version なし (§5.4)
     exportResult.textContent = `Exported: spool-export.zip (${records.length} records)`;
