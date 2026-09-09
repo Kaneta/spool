@@ -30,6 +30,7 @@ const vectors = JSON.parse(
     iso: string | null;
     prefix: string | null;
   }[];
+  titleRoundTripCases: { prefix: string; text: string }[];
 };
 
 // DESIGN-v2 §3.4 title 導出 (共有 fixture)
@@ -80,5 +81,14 @@ for (const [i, c] of vectors.capturedAtGenerationCases.entries()) {
     const d = new Date(c.year!, c.month! - 1, c.day!, c.hour!, c.minute!);
     expect(capturedAtIso(d)).toBe(c.iso);
     expect(capturedAtPrefix(d)).toBe(c.prefix);
+  });
+}
+
+// §3.6 生成 → 検証の閉包: deriveTitle 出力は suffix 0 の candidate として必ず validate を通る
+// (byte limit 超過で candidate が生成不可になる case は fixture に含めない)
+for (const [i, c] of vectors.titleRoundTripCases.entries()) {
+  it(`title roundtrip ${i}`, () => {
+    const name = candidateName(c.prefix, deriveTitle(c.text), 0);
+    expect(validateGeneratedFilename(name)).toBe(true);
   });
 }

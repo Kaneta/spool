@@ -95,7 +95,7 @@ YYYYMMDD-HHMM-<title>[~NN…].txt
 1. 改行で分割し、trim して非空になる最初の行を取る。全行空なら `"paste"`。
 2. その行から、制御文字集合 `U+0000`–`U+001F`, `U+007F` と invalid 文字集合 `/ \ : * ? " < > |` を削除する。
 3. 連続する空白を単一の半角スペース `U+0020` に畳み、前後の空白を削る。**空白集合は ASCII whitespace のみ**: `U+0009, U+000A, U+000B, U+000C, U+000D, U+0020`。Unicode whitespace は対象外。
-4. 先頭の `.` と `-` を削除する (hidden file・option誤認の回避)。
+4. 先頭の `U+0020` / `.` / `-` を、これらのいずれかが先頭に存在する限り繰り返し削除する (hidden file・option誤認の回避)。Unicode whitespace は対象外。
 5. 空になったら `"paste"`。
 6. 64 code point かつ 234 UTF-8 byte (§3.2) の両方を満たすまで、code point 境界で切り詰める。切断のたびに byte 数を再計算する。末尾が空白なら削る。
 

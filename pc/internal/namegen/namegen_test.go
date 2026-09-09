@@ -44,6 +44,10 @@ type vectors struct {
 		Ok     bool   `json:"ok"`
 		Prefix string `json:"prefix"`
 	} `json:"capturedAtParsingCases"`
+	TitleRoundTrip []struct {
+		Prefix string `json:"prefix"`
+		Text   string `json:"text"`
+	} `json:"titleRoundTripCases"`
 }
 
 func loadVectors(t *testing.T) vectors {
@@ -122,6 +126,20 @@ func TestParseCapturedAt(t *testing.T) {
 			}
 			if ok && prefix != c.Prefix {
 				t.Fatalf("ParseCapturedAt(%q) = %q, want %q", c.Input, prefix, c.Prefix)
+			}
+		})
+	}
+}
+
+// TestTitleRoundTrip は生成 → 検証の閉包 (§3.6): deriveTitle の出力は
+// suffix 0 の candidate として必ず ValidateGeneratedFilename を通る。
+func TestTitleRoundTrip(t *testing.T) {
+	for i, c := range loadVectors(t).TitleRoundTrip {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			title := DeriveTitle(c.Text)
+			name := CandidateName(c.Prefix, title, 0)
+			if !ValidateGeneratedFilename(name) {
+				t.Fatalf("generated name %q (from %q) does not validate", name, c.Text)
 			}
 		})
 	}

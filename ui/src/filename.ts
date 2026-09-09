@@ -23,6 +23,16 @@ function asciiTrim(s: string): string {
   while (end > start && isAsciiWhitespace(s[end - 1]!)) end -= 1;
   return s.slice(start, end);
 }
+/** §3.4 step 4: 先頭から U+0020 / "." / "-" を繰り返し削る。集合を一般化しない (trimStart 等は使わない)。
+ * Unicode whitespace (U+00A0 等) は対象外。対象 3 文字は単一 UTF-16 unit のため code point 境界で切れる。 */
+function stripLeading(s: string): string {
+  let i = 0;
+  for (; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c !== 0x20 && c !== 0x2e && c !== 0x2d) break;
+  }
+  return s.slice(i);
+}
 
 // §3.4 step 2 の invalid 文字集合 (`/ \ : * ? " < > |`)
 const INVALID_CHARS = "/\\:*?\"<>|";
@@ -59,8 +69,8 @@ export function deriveTitle(text: string): string {
     collapsed += ch;
   }
 
-  // step 4: 先頭の . と - を削除
-  const title = collapsed.replace(/^[.\-]+/u, "");
+  // step 4: 先頭の U+0020 / "." / "-" を、いずれかが先頭に存在する限り削除する (§3.4)
+  const title = stripLeading(collapsed);
 
   // step 5: 空なら "paste"
   if (title === "") return "paste";

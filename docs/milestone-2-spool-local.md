@@ -141,7 +141,7 @@ Milestone 1 (Browser UI + IndexedDB) は完了済み (commit 4568fcb)。今回�
 3. 連続する空白を単一 U+0020 に畳み、前後の空白を削る。
    空白集合は ASCII whitespace のみ: U+0009, U+000A, U+000B, U+000C, U+000D, U+0020。
    Unicode whitespace (U+00A0 等) は対象外。
-4. 先頭の "." と "-" の連続を削除する。途中の . と - は保持。
+4. 先頭の U+0020 / "." / "-" を、いずれかが先頭に存在する限り繰り返し削除する。途中の . と - は保持。Unicode whitespace は対象外。
 5. 空になったら "paste"。
 6. 64 code point かつ 234 UTF-8 byte の両方を満たすまで code point 境界で切り詰める
    (byte 上限が実質の制約。切断のたびに byte 数を再計算。切断で露出した末尾の

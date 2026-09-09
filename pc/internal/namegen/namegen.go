@@ -59,8 +59,8 @@ func DeriveTitle(text string) string {
 		collapsed.WriteRune(r)
 	}
 
-	// step 4: 先頭の . と - を連続する限り削る。
-	title := strings.TrimLeft(collapsed.String(), ".-")
+	// step 4: 先頭の U+0020 / "." / "-" を、いずれかが先頭に存在する限り削る (§3.4)。
+	title := stripLeading(collapsed.String())
 
 	// step 5: 空なら "paste"。
 	if title == "" {
@@ -69,6 +69,22 @@ func DeriveTitle(text string) string {
 
 	// step 6: 64 code point かつ 234 UTF-8 byte まで code point 境界で切り詰める。
 	return string(truncateTitle([]rune(title)))
+}
+
+// stripLeading は先頭から U+0020 / "." / "-" を繰り返し削る。集合を一般化しない
+// (TrimLeft / TrimLeftFunc 等は使わない)。Unicode whitespace (U+00A0 等) は対象外。
+// 対象 3 文字は ASCII 単一 byte のため byte 走査は多 byte 文字の境界を壊さない。
+func stripLeading(s string) string {
+	i := 0
+	for i < len(s) {
+		switch s[i] {
+		case ' ', '.', '-':
+			i++
+		default:
+			return s[i:]
+		}
+	}
+	return ""
 }
 
 // isAsciiWhitespace は §3.4 step 3 の空白集合 (U+0009, U+000A, U+000B, U+000C, U+000D, U+0020)。

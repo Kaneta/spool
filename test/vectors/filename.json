@@ -50,7 +50,7 @@
     },
     {
       "text": ". x",
-      "want": " x"
+      "want": "x"
     },
     {
       "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -67,6 +67,26 @@
     {
       "text": "hello  world \nsecond line",
       "want": "hello world"
+    },
+    {
+      "text": "- x",
+      "want": "x"
+    },
+    {
+      "text": ". - x",
+      "want": "x"
+    },
+    {
+      "text": " .--foo",
+      "want": "foo"
+    },
+    {
+      "text": "foo - x",
+      "want": "foo - x"
+    },
+    {
+      "text": " -x",
+      "want": " -x"
     }
   ],
   "nameBuildingCases": [
@@ -419,6 +439,48 @@
       "input": "20260909-0705",
       "ok": false,
       "prefix": null
+    }
+  ],
+  "titleRoundTripCases": [
+    {
+      "prefix": "20260909-0705",
+      "text": ". x"
+    },
+    {
+      "prefix": "20260909-0705",
+      "text": "- x"
+    },
+    {
+      "prefix": "20260909-0705",
+      "text": ". - x"
+    },
+    {
+      "prefix": "20260909-0705",
+      "text": " .--foo"
+    },
+    {
+      "prefix": "20260909-0705",
+      "text": "foo - x"
+    },
+    {
+      "prefix": "20260909-0705",
+      "text": " -x"
+    },
+    {
+      "prefix": "20260909-0705",
+      "text": " \nreal"
+    },
+    {
+      "prefix": "20260909-0705",
+      "text": "hello  world \nsecond line"
+    },
+    {
+      "prefix": "20260909-0705",
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbb"
+    },
+    {
+      "prefix": "20260909-0705",
+      "text": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
     }
   ]
 }
