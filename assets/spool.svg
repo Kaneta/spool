@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 24 24"
+     width="24"
+     height="24"
+     role="img"
+     aria-labelledby="title desc">
+  <title id="title">spool</title>
+  <desc id="desc">Three identical 4:3 sheets in perspective, with a larger gap above the settled stack.</desc>
+
+  <!-- Incoming item: lightest, slightly separated from the settled stack -->
+  <path
+    d="M4 5 L12.5 1.5 L20 4.5 L11.5 8 Z"
+    fill="#D9DEE2"/>
+
+  <!-- Settling item -->
+  <path
+    d="M4 13.5 L12.5 10 L20 13 L11.5 16.5 Z"
+    fill="#89939B"/>
+
+  <!-- Settled item: darkest -->
+  <path
+    d="M4 17.5 L12.5 14 L20 17 L11.5 20.5 Z"
+    fill="#252A2E"/>
+</svg>
