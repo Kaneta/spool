@@ -123,10 +123,19 @@ func (s *Store) List() ([]RecordInfo, error) {
 	if err := s.checkRoot(); err != nil {
 		return nil, err
 	}
-	names, err := s.dirFile.Readdirnames(-1)
+	// Readdirnames は directory stream を消費して巻き戻らないため、pin した dirFile を
+	// 直接読むと 2 回目以降の list が空になる (Unit 5 E2E で発見した contract 不整合)。
+	// list は操作のたびに実行される (DESIGN §6.7, UI の Refresh) ので、list のたびに
+	// 同一 directory の新しい file descriptor を dirfd 相対で開く。dup は open file
+	// description (offset) を共有するため使わない。"." は pin した dirfd の指す inode
+	// 自身であり、root path を再解決しない。
+	df, err := unix.Openat(s.dirfd, ".", unix.O_RDONLY|unix.O_CLOEXEC|unix.O_DIRECTORY, 0)
 	if err != nil {
-		return nil, fmt.Errorf("%w: readdir: %v", ErrIO, err)
+		return nil, fmt.Errorf("%w: reopen dirfd: %v", ErrIO, err)
 	}
+	dir := os.NewFile(uintptr(df), ".")
+	defer dir.Close() // 開いた fd はこの list 操作内で閉じる。pin した dirfd とは別物
+	names, err := dir.Readdirnames(-1)
 	sort.Strings(names)
 	records := make([]RecordInfo, 0, len(names))
 	for _, name := range names {

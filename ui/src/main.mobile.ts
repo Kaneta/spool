@@ -1,5 +1,5 @@
-// main.ts — Paste as New → 保存 → 一覧 → 読む の一本道 (DESIGN-v2 §10.1, §4.3, §5.3)。
-// textarea → 保存開始時刻を一度取得 → filename生成 → IndexedDB add → transaction complete → Saved 表示 → list refresh。
+// main.mobile.ts — Mobile/Web build entry。Paste as New → 保存 → 一覧 → 読む の一本道 (DESIGN-v2 §10.1, §4.3, §5.3)。
+// storage backend は IndexedDB (§5)。PC build (main.pc.ts) とは entry と backend のみが違い、runtime probing はしない。
 
 import { candidateName, capturedAtPrefix, deriveTitle, isNameWithinLimit } from "./filename";
 import { addRecord, deleteRecord, listRecords, openDatabase, readAllRecords, readRecord, type AddOutcome } from "./indexeddb";

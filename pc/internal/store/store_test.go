@@ -438,3 +438,35 @@ func TestKindDerivedFromValidator(t *testing.T) {
 		t.Fatal("external name must not be generated")
 	}
 }
+
+// list は操作のたびに呼ばれる (UI Refresh 等)。Readdirnames は stream を消費するため、
+// pin した dirFile を直接読むと 2 回目以降が空になる。list のたびに dirfd 相対で新しい
+// directory fd を開くことで反復可能にする (Unit 5 E2E で発見した contract 不整合の回帰 test)。
+func TestListIsRepeatableAndFollowsChanges(t *testing.T) {
+	s, root := openTestStore(t)
+	requireSaved(t, s, testPrefix+"-one.txt", "one")
+
+	first, err := s.List()
+	if err != nil || len(first) != 1 {
+		t.Fatalf("first list: %v %v", first, err)
+	}
+
+	// 外部 editor / shell による file 追加は次の list に現れる。
+	if err := os.WriteFile(filepath.Join(root, "external note.txt"), []byte("ext"), 0o644); err != nil {
+		t.Fatalf("write external: %v", err)
+	}
+	second, err := s.List()
+	if err != nil || len(second) != 2 {
+		t.Fatalf("second list: %v %v", second, err)
+	}
+
+	// 外部削除も次の list に反映される。
+	if err := os.Remove(filepath.Join(root, testPrefix+"-one.txt")); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	third, err := s.List()
+	if err != nil || len(third) != 1 || third[0].Name != "external note.txt" {
+		t.Fatalf("third list: %v %v", third, err)
+	}
+	assertNoTempResidue(t, root)
+}

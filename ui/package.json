@@ -5,10 +5,13 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:pc": "tsc --noEmit && vite build --config vite.pc.config.ts && mv ../pc/web/dist/index-pc.html ../pc/web/dist/index.html",
     "preview": "vite preview",
+    "e2e:pc": "playwright test -c e2e/playwright.config.ts",
     "test": "vitest run"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "typescript": "~5.9.2",
     "vite": "^7.1.0",
     "vitest": "^3.2.4"

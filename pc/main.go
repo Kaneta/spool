@@ -7,10 +7,12 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"embed"
 	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -24,6 +26,12 @@ import (
 	"spool/internal/server"
 	"spool/internal/store"
 )
+
+// webDist は build:pc 出力 (npm run build:pc → ui → pc/web/dist) を binary へ埋め込む
+// (DESIGN-v2 §6.9)。dist は commit 済みであり、clean checkout から go build できる。
+//
+//go:embed all:web/dist
+var webDist embed.FS
 
 func main() {
 	if err := run(); err != nil {
@@ -83,7 +91,7 @@ func run() error {
 	}
 	hostPort := ln.Addr().String() // actual "127.0.0.1:<port>"。Host / Origin / URL はここから決める
 
-	srv := server.New(st, token, hostPort, placeholderStatic())
+	srv := server.New(st, token, hostPort, staticHandler())
 	// request log は method + path のみ (§6.3)。token / query / body / 内容は出力しない。
 	logged := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("%s %s", r.Method, r.URL.Path)
@@ -151,13 +159,26 @@ func newToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// placeholderStatic は Unit 5 で embed.FS (pc/web/dist) へ置換するまでの最小の静的応答。
-// token 不要 (§6.3)。仮 web assets は作らない。
-func placeholderStatic() http.Handler {
-	body := "<!doctype html><html><head><meta charset=\"utf-8\"><title>spool</title></head>" +
-		"<body><p>spool: PC UI is not embedded yet (Unit 5).</p></body></html>"
+// staticHandler は embed した PC UI (web/dist) を same-origin で配信する (DESIGN-v2 §6.9)。
+// token 不要 (§6.3: 静的資産は機密でない)。security header は静的応答に付与する:
+// CSP / nosniff / Referrer-Policy。index.html は no-cache、hashed asset は immutable。
+func staticHandler() http.Handler {
+	dist, err := fs.Sub(webDist, "web/dist")
+	if err != nil {
+		// embed 構造は compile 時に固定されており到達しない。到達したら隠さない。
+		panic("spool: embed web/dist: " + err.Error())
+	}
+	fileServer := http.FileServerFS(dist)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(body))
+		h := w.Header()
+		h.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			h.Set("Cache-Control", "no-cache") // entry html は再読込で最新を得る
+		} else {
+			h.Set("Cache-Control", "public, max-age=31536000, immutable") // Vite content-hash 済み asset
+		}
+		fileServer.ServeHTTP(w, r)
 	})
 }

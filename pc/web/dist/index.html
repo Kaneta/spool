@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spool</title>
+    <script type="module" crossorigin src="/assets/index-pc-Chl1PN74.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-pc-DwR2DwhY.css">
+  </head>
+  <body>
+    <main>
+      <section>
+        <h2>capture</h2>
+        <textarea id="text" placeholder="paste text here"></textarea>
+        <button id="save" type="button">Save</button>
+        <p id="result"></p>
+      </section>
+      <section>
+        <h2>records</h2>
+        <div id="list-row"><button id="refresh" type="button">Refresh</button></div>
+        <ul id="list"></ul>
+        <p id="server-state"></p>
+      </section>
+      <section id="read" hidden>
+        <h2>selected record</h2>
+        <div id="read-name"></div>
+        <pre id="read-text"></pre>
+        <div id="read-actions">
+          <button id="copy" type="button" disabled>Copy</button>
+          <button id="delete" type="button" disabled>Delete</button>
+        </div>
+        <p id="read-result"></p>
+      </section>
+    </main>
+  </body>
+</html>
