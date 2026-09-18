@@ -137,13 +137,13 @@ func TestAddRootMissingFailsWithoutCreate(t *testing.T) {
 	}
 }
 
-// G: /dev/null は terminal でないため、char device stdin でも空本文を保存する。
+// G: null device (os.DevNull) は terminal でないため、char device stdin でも空本文を保存する。
 // 真の TTY (stdin_required) 経路は pty smoke で確認する。
 func TestAddDevNullStdinSavesEmpty(t *testing.T) {
 	root := t.TempDir()
-	f, err := os.Open("/dev/null")
+	f, err := os.Open(os.DevNull)
 	if err != nil {
-		t.Skipf("/dev/null unavailable: %v", err)
+		t.Skipf("null device unavailable: %v", err)
 	}
 	defer f.Close()
 	if isTerminal(f) {

@@ -28,8 +28,6 @@ import (
 	"spool/internal/server"
 	"spool/internal/store"
 	"spool/internal/textcheck"
-
-	"golang.org/x/sys/unix"
 )
 
 // webDist は build:pc 出力 (npm run build:pc → ui → pc/web/dist) を binary へ埋め込む
@@ -233,13 +231,8 @@ func classifyAdd(err error) string {
 	}
 }
 
-// isTerminal は fd が terminal かを tcgetattr (TCGETS) で判定する。
-// char device 判定 (ModeCharDevice) は /dev/null も terminal 扱いしてしまうため、
-// terminal だけを正確に識別する ioctl を使う。非 terminal は error (ENOTTY 等) になる。
-func isTerminal(f *os.File) bool {
-	_, err := unix.IoctlGetTermios(int(f.Fd()), unix.TCGETS)
-	return err == nil
-}
+// isTerminal は stdin が terminal かを OS 固有の手段で判定する
+// (terminal_unix.go / terminal_windows.go)。
 
 // runAdd は `spool add` の本体。root は CLI --root > config file > (無ければ error) の
 // 既存 config.Resolve で決める。port は add の概念に存在しない。

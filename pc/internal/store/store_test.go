@@ -1,5 +1,9 @@
 package store
 
+// 実 filesystem test (t.TempDir)。fake だけで完成判定にしない (Baseline §14)。
+// 本 file は OS 非依存の store contract test。Linux syscall 固有の境界 test
+// (dirfd 直接 / FIFO) は store_linux_test.go にある。
+
 import (
 	"errors"
 	"os"
@@ -8,13 +12,8 @@ import (
 	"sync"
 	"testing"
 
-	"golang.org/x/sys/unix"
-
 	"spool/internal/namegen"
 )
-
-// 実 filesystem test (t.TempDir)。fake だけで完成判定にしない (Baseline §14)。
-// 全 test は Linux を前提とする (§16: Windows / F_FULLFSYNC は対象外)。
 
 const testPrefix = "20260909-0705"
 
@@ -47,6 +46,14 @@ func assertNoTempResidue(t *testing.T, root string) {
 		if strings.HasPrefix(e.Name(), ".spool-tmp-") {
 			t.Fatalf("temp residue in root: %q", e.Name())
 		}
+	}
+}
+
+// symlink は Windows では特権 / Developer Mode が必要なため、作れない環境では skip。
+func requireSymlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
 	}
 }
 
@@ -123,7 +130,7 @@ func TestSaveRejectsInvalidInput(t *testing.T) {
 	}
 }
 
-// B: 既存 final は置換しない (linkat EEXIST → ErrNameConflict)。本文 1 byte も変わらない。
+// B: 既存 final は置換しない (publish 衝突 → ErrNameConflict)。本文 1 byte も変わらない。
 func TestSaveDoesNotOverwrite(t *testing.T) {
 	s, root := openTestStore(t)
 	name := testPrefix + "-original.txt"
@@ -143,8 +150,34 @@ func TestSaveDoesNotOverwrite(t *testing.T) {
 	assertNoTempResidue(t, root)
 }
 
+// B2 (name conflict retry の temp lifecycle): 同一 final name への連続保存は
+// ErrNameConflict で失敗するが、各 Save invocation は自分の temp (.spool-tmp-*) を
+// return 前に閉じる。失敗 retry のたびに temp が 1 個残る漏洩の regression test
+// (collision 1 回でなく複数 retry を通す)。final 既存 record は変更されない。
+func TestConflictRetriesLeakNoTemp(t *testing.T) {
+	s, root := openTestStore(t)
+	name := testPrefix + "-collide.txt"
+	if err := os.WriteFile(filepath.Join(root, name), []byte("EXISTING"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const attempts = 4
+	for i := range attempts {
+		r := s.Save(name, []byte("NEW"))
+		if r.State != SaveFailed || !errors.Is(r.Err, ErrNameConflict) {
+			t.Fatalf("attempt %d: state=%v err=%v, want failed/ErrNameConflict", i, r.State, r.Err)
+		}
+		assertNoTempResidue(t, root)
+	}
+
+	got, err := os.ReadFile(filepath.Join(root, name))
+	if err != nil || string(got) != "EXISTING" {
+		t.Fatalf("existing record changed after retries: %q err=%v", got, err)
+	}
+}
+
 // C: 同一 final への並行 create。成功は 1 件、他は name conflict、本文は成功 1 件の完成本文。
-// 同一 dirfd からの同時 linkat でも overwrite されない atomic 性。
+// 同一 pin からの同時 publish でも overwrite されない atomic 性。
 func TestConcurrentCreateRace(t *testing.T) {
 	s, root := openTestStore(t)
 	name := testPrefix + "-race.txt"
@@ -195,6 +228,7 @@ func TestConcurrentCreateRace(t *testing.T) {
 }
 
 // D: list の分類と対象外。path-based os.ReadDir に依存しない list であることの確認も兼ねる。
+// symlink は store_linux_test.go の Unix 固有 test でも確認する。
 func TestListClassificationAndExclusions(t *testing.T) {
 	s, root := openTestStore(t)
 
@@ -205,9 +239,7 @@ func TestListClassificationAndExclusions(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "notes.txt"), 0o755); err != nil {
 		t.Fatal(err) // directory 名の .txt → 対象外
 	}
-	if err := os.Symlink("my notes.txt", filepath.Join(root, "link.txt")); err != nil {
-		t.Fatal(err) // symlink → 対象外
-	}
+	requireSymlink(t, "my notes.txt", filepath.Join(root, "link.txt")) // symlink → 対象外
 	if err := os.WriteFile(filepath.Join(root, "readme.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err) // 非 .txt → 対象外
 	}
@@ -233,7 +265,7 @@ func TestListClassificationAndExclusions(t *testing.T) {
 	}
 }
 
-// E: symlink を read しない (O_NOFOLLOW / ELOOP)。outside に届かない。
+// E: symlink を read しない。outside に届かない。
 func TestReadSymlinkRejected(t *testing.T) {
 	s, root := openTestStore(t)
 	outside := t.TempDir()
@@ -241,9 +273,7 @@ func TestReadSymlinkRejected(t *testing.T) {
 	if err := os.WriteFile(target, []byte("OUTSIDE"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, filepath.Join(root, "evil.txt")); err != nil {
-		t.Fatal(err)
-	}
+	requireSymlink(t, target, filepath.Join(root, "evil.txt"))
 
 	got, err := s.Read("evil.txt")
 	if !errors.Is(err, ErrInvalidName) {
@@ -254,7 +284,7 @@ func TestReadSymlinkRejected(t *testing.T) {
 	}
 }
 
-// F: symlink を record として削除しない。unlinkat の対象は dirfd 直下 entry だけ。
+// F: symlink を record として削除しない。削除の対象は pin 直下 entry だけ。
 func TestDeleteSymlinkSafety(t *testing.T) {
 	s, root := openTestStore(t)
 	outside := t.TempDir()
@@ -263,9 +293,7 @@ func TestDeleteSymlinkSafety(t *testing.T) {
 		t.Fatal(err)
 	}
 	link := filepath.Join(root, "evil.txt")
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
-	}
+	requireSymlink(t, target, link)
 	if err := os.WriteFile(filepath.Join(root, "plain.txt"), []byte("p"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -291,35 +319,6 @@ func TestDeleteSymlinkSafety(t *testing.T) {
 	}
 	if err := s.Delete("a/b.txt"); !errors.Is(err, ErrInvalidName) {
 		t.Fatalf("delete traversal: %v, want ErrInvalidName", err)
-	}
-}
-
-// G: dirfd pinning の閉じ込め証明。root path を rename しても pin した dirfd は元 inode を指し、
-// dirfd 相対操作は rename 後の位置 (元 inode 配下) で完結し、別 path へ飛ばない。
-func TestDirfdFollowsRenamedRoot(t *testing.T) {
-	s, root := openTestStore(t)
-	renamed := root + "-moved"
-	if err := os.Rename(root, renamed); err != nil {
-		t.Fatal(err)
-	}
-
-	fd, err := unix.Openat(s.dirfd, "pinned.txt", unix.O_CREAT|unix.O_EXCL|unix.O_WRONLY|unix.O_CLOEXEC, 0o644)
-	if err != nil {
-		t.Fatalf("openat via pinned dirfd: %v", err)
-	}
-	if _, err := unix.Write(fd, []byte("PINNED")); err != nil {
-		t.Fatal(err)
-	}
-	if err := unix.Close(fd); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := os.ReadFile(filepath.Join(renamed, "pinned.txt"))
-	if err != nil || string(got) != "PINNED" {
-		t.Fatalf("dirfd-relative write escaped: %q err=%v", got, err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "pinned.txt")); !os.IsNotExist(err) {
-		t.Fatalf("old path should not exist: %v", err)
 	}
 }
 
@@ -377,44 +376,12 @@ func TestRootMissingStopsOperations(t *testing.T) {
 	}
 }
 
-// J: directory / FIFO を record として扱わない。O_NONBLOCK により FIFO open で停止しない。
-func TestSpecialFilesNotRecords(t *testing.T) {
-	s, root := openTestStore(t)
-
-	if err := os.Mkdir(filepath.Join(root, "sub.txt"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := unix.Mkfifo(filepath.Join(root, "pipe.txt"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	infos, err := s.List()
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(infos) != 0 {
-		t.Fatalf("special files listed: %v", infos)
-	}
-	for _, name := range []string{"sub.txt", "pipe.txt"} {
-		if _, err := s.Read(name); !errors.Is(err, ErrInvalidName) {
-			t.Fatalf("read %q: %v, want ErrInvalidName", name, err)
-		}
-		if err := s.Delete(name); !errors.Is(err, ErrInvalidName) {
-			t.Fatalf("delete %q: %v, want ErrInvalidName", name, err)
-		}
-	}
-	// 対象外扱いでも entry は削除していない (削除は明示操作の対象外)
-	if _, err := os.Lstat(filepath.Join(root, "pipe.txt")); err != nil {
-		t.Fatalf("fifo entry must survive: %v", err)
-	}
-}
-
-// K (§14 fault injection): publish (linkat) 成功後の directory fsync 失敗 → result uncertain。
+// K (§14 fault injection): publish 成功後の directory flush 失敗 → result uncertain。
 // final は完成本文で publish 済み。
 func TestUncertainWhenDirFsyncFails(t *testing.T) {
 	s, root := openTestStore(t)
 	defer func() { s.testDirSync = nil }()
-	s.testDirSync = func() error { return unix.EIO }
+	s.testDirSync = func() error { return errors.New("injected dir sync failure") }
 
 	name := testPrefix + "-durability.txt"
 	r := s.Save(name, []byte("DURABLE-BODY"))
@@ -439,9 +406,9 @@ func TestKindDerivedFromValidator(t *testing.T) {
 	}
 }
 
-// list は操作のたびに呼ばれる (UI Refresh 等)。Readdirnames は stream を消費するため、
-// pin した dirFile を直接読むと 2 回目以降が空になる。list のたびに dirfd 相対で新しい
-// directory fd を開くことで反復可能にする (Unit 5 E2E で発見した contract 不整合の回帰 test)。
+// list は操作のたびに呼ばれる (UI Refresh 等)。list のたびに同一 directory の新しい
+// handle / enumeration を行うことで反復可能にする (Unit 5 E2E で発見した contract
+// 不整合の回帰 test)。
 func TestListIsRepeatableAndFollowsChanges(t *testing.T) {
 	s, root := openTestStore(t)
 	requireSaved(t, s, testPrefix+"-one.txt", "one")
