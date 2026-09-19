@@ -1,7 +1,7 @@
 # spool DESIGN v2 (Atomic Rebuild 詳細設計)
 
 Status: 詳細設計 (2026-09-08)。実装の完成状態は `docs/checkpoint-2026-09-09.md` (checkpoint) に記録する。本書は設計であり、実装の進捗をここでは管理しない。
-唯一の上位基準は `docs/spool-design-baseline-v2.md` (以下 Baseline)。本書は Baseline の製品境界を、実装時に迷わない粒度へ具体化したものであり、Baseline が明示していない機能・保証・正本を追加しない。本書と Baseline が矛盾する場合は Baseline が優先し、本書を修正する。
+本書は本リポジトリの canonical design document であり、上位基準は存在しない。本文の `Baseline` への参照 (Baseline §N 等) は、かつて制定された上位文書 `docs/spool-design-baseline-v2.md` を指す歴史的参照である。当該文書は現在の public repository には含まれず、矛盾が生じる場合は本書を正本とする。
 旧DESIGN・旧Baseline・各レビュー・legacy実装の内部構造は本書の根拠に含まない。legacy実装は現行 UX / 既存 Bridge の挙動確認のみに参照し得る。
 
 本書は設計である。実装・migration・legacy改修は含まない。

@@ -1,6 +1,6 @@
 # spool 完成済み基礎 checkpoint (2026-09-09)
 
-Status: 実装の完成状態の記録。上位基準は `docs/spool-design-baseline-v2.md` (Baseline)、次いで `DESIGN-v2.md`。本書は既に完成・実機確認できた範囲を checkpoint として固定するものであり、新しい設計を追加しない。実機確認の事実は記録するが、設計上の保証を追加しない。
+Status: 実装の完成状態の記録。上位基準は `docs/spool-design-baseline-v2.md` (Baseline)、次いで `DESIGN-v2.md`。(注: Baseline 文書は現在の repository には含まれない。DESIGN-v2.md が現行 canonical 設計) 本書は既に完成・実機確認できた範囲を checkpoint として固定するものであり、新しい設計を追加しない。実機確認の事実は記録するが、設計上の保証を追加しない。
 
 ---
 

@@ -5,3 +5,6 @@ ui/dist/
 ui/test-results/
 ui/playwright-report/
 pc/spool
+spool/
+pc/spool.exe
+pc/spool-clipboard.exe

@@ -69,7 +69,7 @@ which spool
 
 ```text
 /usr/bin/xclip
-/home/kohei/.local/bin/spool
+$HOME/.local/bin/spool
 ```
 
 `xclip` が未導入なら openSUSE では:
@@ -143,8 +143,8 @@ chmod +x ~/.local/bin/spool-clipboard
 Type=Application
 Name=spool
 Comment=Add clipboard text to spool
-Exec=/home/kohei/.local/bin/spool-clipboard
-Icon=/home/kohei/.local/share/icons/spool.svg
+Exec=$HOME/.local/bin/spool-clipboard
+Icon=$HOME/.local/share/icons/spool.svg
 Terminal=false
 Categories=Utility;
 ```
@@ -219,7 +219,7 @@ X11 で `wl-paste` を実行すると、Wayland server に接続できず空 std
 GUI セッションの `PATH` に依存しないよう、`.desktop` や helper では:
 
 ```text
-/home/kohei/.local/bin/spool
+$HOME/.local/bin/spool
 ```
 
 のように絶対パスを使う。

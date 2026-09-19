@@ -1,5 +1,7 @@
 # DESIGN-v2 再監査
 
+> NOTE (2026-09-19): Historical review. Findings reflect an earlier design state and are not the current blocker list. Current design authority is `DESIGN-v2.md` and the checkpoint documents under `docs/`.
+
 ## A. Final verdict
 
 `NOT READY`
