@@ -17,6 +17,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
-    "client-zip": "^2.5.0"
+    "client-zip": "^2.5.0",
+    "markdown-it": "^15.0.2"
   }
 }

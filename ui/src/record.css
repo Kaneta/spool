@@ -1,0 +1,59 @@
+/* record.css — Saved Record page (UI-DESIGN.md §10)。read-only reading surface。
+   visual language は mobile.css と同一 (TUI-inspired / 1px border / radius 0 / no shadow)。 */
+:root {
+  --fg: #1a1a1a;
+  --bg: #f6f6f6;
+  --pane: #ffffff;
+  --muted: #555555;
+  --line: #888888;
+  --line-soft: #dddddd;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+  margin: 0;
+  min-height: 100dvh;
+}
+button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--pane);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: #efefef; }
+button:disabled { color: var(--muted); background: var(--pane); border-color: var(--line-soft); cursor: default; }
+
+main { padding: 24px 16px; }
+
+/* reading width はこの page だけの責務 (~52rem, 中央)。Composer の width rule とは別 (UI-DESIGN.md §13) */
+#record-column { max-width: 52rem; margin: 0 auto; }
+#record-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+  margin-bottom: 16px;
+}
+#record-name { font-weight: 700; overflow-wrap: anywhere; }
+#record-copy { white-space: nowrap; }
+#record-text {
+  white-space: pre-wrap; /* plain text: whitespace / 改行保持 */
+  overflow-wrap: anywhere; /* 長い 1 行での document 横 overflow を避ける */
+  margin: 0;
+  font: inherit;
+  background: var(--pane);
+  border: 1px solid var(--line-soft);
+  padding: 16px;
+  min-height: 4rem;
+}
+#record-state { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 0; }

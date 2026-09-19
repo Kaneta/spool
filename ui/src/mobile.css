@@ -104,7 +104,7 @@ main h2 { border-bottom: 1px solid var(--line-soft); padding-bottom: 4px; margin
   resize: none;
   overflow: auto;
 }
-#save { align-self: flex-start; }
+#compose-actions { display: flex; align-items: center; gap: 8px; align-self: flex-start; } /* [SAVE][OPEN PREVIEW] */
 #result { color: var(--muted); white-space: pre-wrap; min-height: 1.5em; margin: 0; overflow-wrap: anywhere; }
 
 /* record view: Composer と 1 正位 (UI-DESIGN.md §3)。record 表示は read-only。
@@ -166,6 +166,10 @@ body[data-view="record"] #back { display: inline-block; }
   min-width: 0;
 }
 #search-row #search-clear, #search-help button { min-height: 32px; }
+/* Search overlay 中の temporary 2-pane workspace (desktop/tablet のみ §4)。
+   mobile (<=720px) は既存の single-column results に戻るため、preview はここでは配置しない。 */
+#search-body { display: flex; flex-direction: column; min-height: 0; }
+#search-preview { display: none; } /* 既定 (mobile): preview pane なし */
 #search-results {
   list-style: none;
   margin: 0;
@@ -227,6 +231,39 @@ body[data-view="record"] #back { display: inline-block; }
   }
   #rail-head { width: 100%; }
   main { padding: 16px; }
+
+  /* ===== Search overlay 中の temporary search workspace (UI-DESIGN.md §4)。
+     results | read-only preview。overlay だけ広げる (viewport 相対 + 上限。fixed px 1値に依存しない)。
+     close すれば visual に既存 rail | Composer へ完全に戻る。 */
+  #search-box { width: min(90vw, 960px); }
+  #search-body {
+    flex-direction: row;
+    align-items: stretch;
+  }
+  #search-results {
+    flex: 0 0 clamp(14rem, 22vw, 18rem);
+    max-height: 44vh;
+  }
+  #search-preview {
+    display: flex; /* preview pane 有効化 (JS は hidden を外して運用。CSS が desktop のみ表示する) */
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 44vh;
+    border-left: 1px solid var(--line-soft);
+    padding: 8px 16px;
+  }
+  #search-preview-name { font-weight: 700; overflow-wrap: anywhere; border-bottom: 1px solid var(--line-soft); padding-bottom: 4px; }
+  #search-preview-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere; /* 長い 1 行での横 scroll / overlay 圧迫を避ける */
+    margin: 0;
+    font: inherit;
+    overflow-y: auto; /* internal vertical scroll のみ */
+    min-height: 0;
+  }
+  #search-preview-name:empty + #search-preview-text { border: none; } /* empty state のときは text だけ */
 }
 
 /* ===== rail closed: minimal reopen handle =====

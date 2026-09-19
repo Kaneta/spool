@@ -74,14 +74,22 @@ async function saveAndWait(page: Page, text: string): Promise<string> {
   return name;
 }
 
-/** Search overlay を開いて title で検索 → 先頭の一致行を click → read 表示の切り替え待ち。
- * selectRecord は async read を含むため race 対策として read-name を待つ。 */
-async function selectAndWait(page: Page, title: string): Promise<void> {
+/** Paste as New で record を保存・選択し (transitional record view 経由)、確定した name を返す。
+ * Search の結果選択は別 tab open になったため、record view 上の選択はこの経路だけ。 */
+async function pasteNew(page: Page, text: string): Promise<string> {
+  await page.evaluate((t) => navigator.clipboard.writeText(t), text);
+  await page.click("#paste-as-new");
+  await expect(page.locator("#read")).toBeVisible();
+  const name = (await page.textContent("#read-name")) ?? "";
+  expect(name.endsWith(".txt")).toBe(true);
+  return name;
+}
+
+/** Search overlay を開いて query で絞り込む (open はしない。preview 系 test で共通)。 */
+async function searchQuery(page: Page, query: string): Promise<void> {
   await page.click("#search");
   await expect(page.locator("#search-input")).toBeFocused();
-  await page.fill("#search-input", title);
-  await page.locator("#search-results button", { hasText: title }).first().click();
-  await expect(page.locator("#read-name")).toContainText(title);
+  await page.fill("#search-input", query);
 }
 
 // Paste as New: clipboard → 既存 save pipeline → 即保存 → 右 pane read-only 表示。
@@ -154,12 +162,11 @@ test("paste as new: clipboard failure shows visible error, Composer unchanged", 
 });
 
 // record view: permanent pane は廃止済み。record 未選択の間は Composer が表示され、
-// 選択すると既存 registry swap で record view に置き換わる (§3 transitional)。
+// 選択すると既存 registry swap で record view に置き換わる (§3 transitional)。Search からは開かない。
 test("record view: hidden until a record is selected, then replaces Composer", async ({ browser }) => {
   const page = await newPage(browser);
   await expect(page.locator("#view")).toBeHidden(); // 常設 pane ではない
-  await saveAndWait(page, "empty state body");
-  await selectAndWait(page, "empty state body");
+  await pasteNew(page, "paste view body");
   await expect(page.locator("#view")).toBeVisible();
   await expect(page.locator("#empty-state")).toBeHidden();
   await expect(page.locator("#read")).toBeVisible();
@@ -171,25 +178,32 @@ test("record view: hidden until a record is selected, then replaces Composer", a
   await expect(page.locator("#text")).toBeVisible();
 });
 
-// mobile (390×780): Search → Record view → Back → Composer。Search は再 open 可能。
+// mobile (390×780): record view → Back、Search は再 open 可能。result open は別 tab (§16)。
 // Phase 1 RECENT は撤去済みのため retrieval は Search overlay 一本。
-test("mobile: search → record view → back → composer restored, search reopenable", async ({ browser }) => {
+test("mobile: record view via paste, back, search reopenable, result tap opens new tab", async ({ browser }) => {
   const page = await newPage(browser);
   await page.setViewportSize({ width: 390, height: 780 }); // mobile viewport に切り替えてから検証する
   await saveAndWait(page, "mobile search body");
   await expect(page.locator("#text")).toBeVisible(); // default = Composer view
 
-  await selectAndWait(page, "mobile search body"); // search open → 選択
-  await expect(page.locator("#read-name")).toContainText("mobile search"); // Record view へ移動
+  await pasteNew(page, "mobile paste view body"); // record view は Paste as New 経由 (transitional)
   await expect(page.locator("#text")).toBeHidden();
   await expect(page.locator("#back")).toBeVisible();
 
   await page.click("#back"); // Back → Composer
   await expect(page.locator("#text")).toBeVisible();
 
-  await page.click("#search"); // 再度 open 可能
+  await page.click("#search"); // re-open 可能
   await expect(page.locator("#search-overlay")).toBeVisible();
-  await expect(page.locator("#search-results li button")).toHaveCount(1); // empty query = recent records
+  await expect(page.locator("#search-results li button")).toHaveCount(2); // empty query = recent records
+  // mobile: live preview pane なし (狭い viewport に押し込まない)
+  await expect(page.locator("#search-preview")).toBeHidden();
+  // result tap → 別 tab で record page。overlay は open のまま
+  const popupPromise = page.context().waitForEvent("page");
+  await page.locator("#search-results button", { hasText: "mobile search body" }).click();
+  const popup = await popupPromise;
+  await expect(popup.locator("#record-name")).toHaveText(/mobile search body\.txt$/);
+  await expect(page.locator("#search-overlay")).toBeVisible(); // overlay は残る
   await page.keyboard.press("Escape"); // Esc close は mobile でも機能する
   await expect(page.locator("#search-overlay")).toBeHidden();
 
@@ -205,67 +219,110 @@ test("mobile: search → record view → back → composer restored, search reop
   await expect(page.locator("#search")).toBeFocused();
 });
 
-// Search overlay (desktop): open → autofocus → empty query = recent records → 日本語 AND 検索 filter →
-// result click で閉じて右 pane に表示。Composer draft は壊さない。
-test("search: open, recent, Japanese filter, result opens record, draft preserved", async ({ browser }) => {
+// Search overlay (desktop): open → autofocus → empty query = recent records → preview 先頭 →
+// 日本語 AND 検索 filter → preview 追従 → 0 results empty state → Enter 別 tab open。
+// overlay・query・選択・preview・Composer draft は全部保持される。
+test("search: open, recent, preview follows selection/filter, zero-result empty state, Enter opens new tab", async ({ browser }) => {
   const page = await newPage(browser);
   const name = await saveAndWait(page, "空調 設定を変更しました 東側ラウンジ");
   await saveAndWait(page, "unrelated other memo");
   await expect(page.locator("#search")).toBeEnabled();
 
   await page.fill("#text", "draft must remain"); // Composer draft
+
+  // desktop default viewport (1280): preview pane が最初の選択 (新しい record) を表示する
   await page.click("#search");
   await expect(page.locator("#search-overlay")).toBeVisible();
   await expect(page.locator("#search-input")).toBeFocused(); // open 時 autofocus
-  await expect(page.locator("#search-results li button")).toHaveCount(2); // empty query = recent records
-  await expect(page.locator("#search-results li button", { hasText: "unrelated other" })).toHaveCount(1); // 両 record が recent に出る
+  await expect(page.locator("#search-preview")).toBeVisible();
+  const firstName = (await page.locator("#search-results li button").first().textContent()) ?? "";
+  await expect(page.locator("#search-preview-name")).toHaveText(firstName); // preview = 選択中 (先頭) result
+  expect((await page.textContent("#search-preview-text"))?.length ?? 0).toBeGreaterThan(0);
 
+  // 日本語 AND: 両 token を含む record のみ。query 変更で選択は先頭に戻り preview も追従する
   await page.fill("#search-input", "空調 設定"); // 日本語 AND: 両 token を含む record のみ
   await expect(page.locator("#search-results li button")).toHaveCount(1);
   await expect(page.locator("#search-results li button")).toHaveText(name);
+  await expect(page.locator("#search-preview-name")).toHaveText(name);
+  expect((await page.textContent("#search-preview-text"))?.includes("東側ラウンジ")).toBe(true);
+  expect(await page.inputValue("#text")).toBe("draft must remain"); // Composer draft は維持
 
-  await page.fill("#search-input", "一致しない語 xyz"); // non-match は消える
+  await page.fill("#search-input", "一致しない語 xyz"); // non-match は消える → empty state
   await expect(page.locator("#search-results li button")).toHaveCount(0);
+  await expect(page.locator("#search-preview-text")).toHaveText("No matching record.");
 
   await page.fill("#search-input", "空調");
-  await page.locator("#search-results button").first().click(); // mouse selection
-  await expect(page.locator("#search-overlay")).toBeHidden(); // click で close
-  await expect(page.locator("#read-name")).toHaveText(name); // 右 pane に表示
-  expect(await readTextContent(page)).toContain("東側ラウンジ");
-  await expect(page.locator("#empty-state")).toBeHidden();
-  expect(await page.inputValue("#text")).toBe("draft must remain"); // Composer draft は維持
+  // Enter: user gesture 内で同期 open。original tab の overlay / query / 選択 / preview は保持
+  const popupPromise = page.context().waitForEvent("page");
+  await page.keyboard.press("Enter");
+  const popup = await popupPromise;
+  await popup.waitForLoadState("load");
+  expect(popup.url()).toContain("record.html?name=" + encodeURIComponent(name));
+  await expect(popup.locator("#record-name")).toHaveText(name);
+  expect((await popup.textContent("#record-text"))?.includes("東側ラウンジ")).toBe(true);
+  await expect(popup.locator("#record-copy")).toBeVisible();
+
+  await expect(page.locator("#search-overlay")).toBeVisible(); // overlay は open のまま
+  await expect(page.locator("#search-input")).toHaveValue("空調"); // query 維持
+  await expect(page.locator("#search-preview-text")).toContainText("東側ラウンジ"); // preview 維持
+  expect(await page.evaluate(() => document.body.dataset.view)).not.toBe("record"); // record view へ遷移しない
+  await page.keyboard.press("Escape"); // close は通常どおり
+  await expect(page.locator("#search-overlay")).toBeHidden();
+  await expect(page.locator("#view")).toBeHidden(); // current-tab record view に遷移していない
+});
+
+// result row click も別 tab open。一回の click gesture から同期 open (popup blocker 対策)。
+test("search: result row click opens record page in new tab", async ({ browser }) => {
+  const page = await newPage(browser);
+  const name = await saveAndWait(page, "click open target body");
+  await page.click("#search");
+  await expect(page.locator("#search-input")).toBeFocused();
+  const popupPromise = page.context().waitForEvent("page");
+  await page.locator("#search-results button", { hasText: "click open target" }).click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("load");
+  expect(popup.url()).toContain("record.html?name=" + encodeURIComponent(name));
+  await expect(popup.locator("#record-name")).toHaveText(name);
+  await expect(page.locator("#search-overlay")).toBeVisible(); // original Search は残る
+  await page.keyboard.press("Escape");
 });
 
 // keyboard inside overlay only: Arrow/Enter/Esc。検索外では通常入力 (/ は Composer の文字)。
-test("search keyboard: arrows move selection, Enter opens, Esc closes; no global shortcuts", async ({ browser }) => {
+// ↓/↑ は selection の移動 + preview 即時追従。Enter は別 tab open。
+test("search keyboard: arrows move selection+preview, Enter opens new tab, Esc closes; no global shortcuts", async ({ browser }) => {
   const page = await newPage(browser);
   await saveAndWait(page, "keyboard alpha body");
   await saveAndWait(page, "keyboard beta body"); // 新しい順: beta, alpha
 
   await page.click("#search");
   await expect(page.locator("#search-input")).toBeFocused();
-  await expect(page.locator("#search-results li button").first()).toHaveClass(/selected/); // 先頭選択
+  await expect(page.locator("#search-preview-name")).toContainText("keyboard beta"); // 先頭選択
+  expect((await page.textContent("#search-preview-text"))?.includes("keyboard beta body")).toBe(true);
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("#search-results li button").nth(1)).toHaveClass(/selected/); // ↓ で次へ
+  await expect(page.locator("#search-preview-name")).toContainText("keyboard alpha"); // preview 即時更新
+  expect((await page.textContent("#search-preview-text"))?.includes("keyboard alpha body")).toBe(true);
   await page.keyboard.press("ArrowUp");
   await expect(page.locator("#search-results li button").first()).toHaveClass(/selected/);
-  await page.keyboard.press("Enter"); // ↑↓/Enter は Search 内でのみ.*動く
-  await expect(page.locator("#search-overlay")).toBeHidden();
-  await expect(page.locator("#read-name")).toContainText("keyboard beta");
+  await expect(page.locator("#search-preview-name")).toContainText("keyboard beta");
+
+  await page.keyboard.press("Enter"); // ↑↓/Enter は Search 内でのみ動く
+  const popup = await page.context().waitForEvent("page");
+  await popup.waitForLoadState("load");
+  await expect(popup.locator("#record-name")).toContainText("keyboard beta");
+  await expect(page.locator("#search-overlay")).toBeVisible(); // overlay は open のまま
 
   // Esc で close。focus は SEARCH button へ戻る
-  await page.click("#search");
-  await page.focus("#search-input");
   await page.keyboard.press("Escape");
   await expect(page.locator("#search-overlay")).toBeHidden();
+  await expect(page.locator("#search")).toBeFocused();
+  await expect(page.locator("#view")).toBeHidden(); // current-tab record view への遷移なし
 
   // global shortcut は無い: Composer focus 中の `/` も通常 text。Ctrl+K で検索も開かない
-  await page.click("#back"); // composer view へ戻る (record view が Composer を置換する既存行為)
-  await expect(page.locator("#text")).toBeVisible();
   await page.click("#text");
   await page.keyboard.type("slash / test");
   await expect(page.locator("#search-overlay")).toBeHidden();
-  expect(await page.inputValue("#text")).toBe("slash / test");
+  expect(await page.inputValue("#text")).toContain("slash / test");
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.locator("#search-overlay")).toBeHidden(); // Ctrl/Cmd+K は Search を開かない
 });
@@ -282,7 +339,7 @@ test("layout wide: rail visible, Composer uses remaining width (not 52rem-capped
   expect(await page.locator("#rail-toggle").getAttribute("aria-label")).toBe("Collapse controls");
   await expect(page.locator("#paste-as-new")).toBeVisible(); // primary は rail 内
   await expect(page.locator("#record-count")).toBeVisible();
-  await saveAndWait(page, `long record body\n${"padding line\n".repeat(500)}`);
+  await page.fill("#text", `long record body\n${"padding line\n".repeat(100)}`);
 
   // Compose view で workspace 幅を測る (record view 中は #text が hidden になるため)
   const m = await page.evaluate(() => {
@@ -304,7 +361,8 @@ test("layout wide: rail visible, Composer uses remaining width (not 52rem-capped
   expect(m.textWidth).toBeGreaterThan(800); // 旧 ~52rem (~832px) cap を超える: flexible workspace
   expect(m.noPageGrowth).toBe(true); // document 全体を scroll させない
 
-  await selectAndWait(page, "long record");
+  await page.evaluate((t) => navigator.clipboard.writeText(t), `long paste body\n${"padding line\n".repeat(100)}`);
+  await page.click("#paste-as-new"); // record view = 長い本文 → pane 内 scroll (transitional)
   await expect(page.locator("#read-text")).toBeVisible();
   const rv = await page.evaluate(() => {
     const doc = document.documentElement;
@@ -552,27 +610,27 @@ test("IndexedDB open failure: visible error, Save disabled, no fallback", async 
   await expect(page.locator("#result")).toHaveText("");
 });
 
-// production build での成功動線: save → list → select/read → copy → export single → export all → delete。
+// production build での成功動線: save → paste-as-new record view → copy → export single → export all → delete。
 // 実 IndexedDB の正本に対して全操作が通ることを 1 本で固定する。
-test("success path: save → list → select/read → copy → export single → export all → delete", async ({ browser }) => {
+// (record view への選択は Paste as New 経由。Search 結果は別 tab open になったため。)
+test("success path: save → select/read via paste → copy → export single → export all → delete", async ({ browser }) => {
   const page = await newPage(browser);
   const text = "success path body 日本語\n\tTABあり\n末尾空白:   ";
-  const name = await saveAndWait(page, text);
+  await saveAndWait(page, text); // Composer save 経路 (別 test でも網羅)
   expect(await page.inputValue("#text")).toBe(""); // snapshot 一致 → textarea clear
 
-  // select / read
-  await selectAndWait(page, "success path body");
-  await expect(page.locator("#read-name")).toHaveText(name);
+  // select / read: clipboard 同 text を paste as new → 保存 + record view 表示
+  const selName = await pasteNew(page, text);
   expect(await readTextContent(page)).toBe(text);
 
   // copy: 選択中 record を改めて読み、clipboard へそのまま copy
   await page.click("#copy");
-  await expect(page.locator("#read-result")).toContainText(`Copied: ${name}`);
+  await expect(page.locator("#read-result")).toContainText(`Copied: ${selName}`);
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(text);
 
   // export single: 本文そのままの .txt download
   const [txt] = await Promise.all([page.waitForEvent("download"), page.click("#export-txt")]);
-  expect(txt.suggestedFilename()).toBe(name);
+  expect(txt.suggestedFilename()).toBe(selName);
   expect(await txt.path()).toBeTruthy();
 
   // export all: name → text の zip
@@ -580,53 +638,20 @@ test("success path: save → list → select/read → copy → export single →
   expect(zip.suggestedFilename()).toBe("spool-export.zip");
   expect(await zip.path()).toBeTruthy();
 
-  // delete: confirm accept → 即削除 → 件数 0、read area は閉じる
+  // delete: confirm accept → 即削除。2 records (save + paste) 中 1 件消える。read area は閉じる
   dialogAction = "accept";
   await page.click("#delete");
   dialogAction = "dismiss";
-  await expect(page.locator("#record-count")).toHaveText("records: 0");
+  await expect(page.locator("#record-count")).toHaveText("records: 1");
   await expect(page.locator("#read")).toBeHidden();
   await expect(page.locator("#copy")).toBeDisabled();
 });
 
-// §4.4 read race — A の read 完了を遅延させ、B を先に表示させる。A の遅い完了が
-// 後続の B 表示を上書きしないことを実 browser + 実 IndexedDB で固定する。
-test("read race: stale completion does not overwrite newer selection", async ({ browser }) => {
-  const page = await newPage(browser, () => {
-    // 限定 delay injection: "read race slow" を含む name の get 成功 event だけ 500ms 遅延する。
-    // indexeddb.ts の readonlyRequest は req.onsuccess / req.onerror / req.result しか触らないため、
-    // それらを遅延配信する薄い proxy で包む。
-    const origGet = IDBObjectStore.prototype.get;
-    IDBObjectStore.prototype.get = function (key: IDBValidKey, ...rest: unknown[]) {
-      const req = origGet.apply(this, [key, ...rest] as [IDBValidKey]);
-      if (!String(key).includes("read race slow")) return req;
-      const holder: { onsuccess: EventListener | null; onerror: EventListener | null } = { onsuccess: null, onerror: null };
-      req.onsuccess = (ev) => setTimeout(() => holder.onsuccess?.call(req, ev), 500);
-      req.onerror = (ev) => setTimeout(() => holder.onerror?.call(req, ev), 500);
-      return new Proxy(holder, {
-        get: (t, prop) => (prop in t ? t[prop as keyof typeof t] : Reflect.get(req, prop, req)),
-        set: (t, prop, v) => ((t as Record<PropertyKey, unknown>)[prop] = v, true),
-      });
-    } as typeof IDBObjectStore.prototype.get;
-  });
-  await saveAndWait(page, "read race slow A body");
-  await saveAndWait(page, "read race fast B body");
-
-  // read A 開始 (成功 event は遅延) → Search を閉じて B を先に完了させる
-  await page.click("#search");
-  await page.fill("#search-input", "read race slow");
-  await page.locator("#search-results button", { hasText: "read race slow" }).first().click();
-  await page.focus("#search-input"); // Esc close は Search input focus 中
-  await page.keyboard.press("Escape"); // A の read 完了を待たず overlay を閉じる
-  await selectAndWait(page, "read race fast"); // B を先に完了させる
-  await expect(page.locator("#read-name")).toContainText("read race fast", { timeout: 2_000 });
-  await page.waitForTimeout(800); // A の遅延 read 完了を待つ
-  await expect(page.locator("#read-name")).toContainText("read race fast"); // 上書きされない
-  expect(await readTextContent(page)).toBe("read race fast B body");
-});
-
 // §4.4 delete race — A の delete 完了を遅延させ、その間に B を選ぶ。A の完了が
 // B の選択・read 表示を clear しないことを固定する。
+// (旧 read race test は変更で維持: Search 結果は別 tab open になり、record view への選択は
+// Paste as New 経由のみ (pasteBusy guard あり) となり、UI 上で重複した selectRecord が
+// 起こり得なくなったため test を削除した。)
 test("delete race: old delete completion keeps newer selection", async ({ browser }) => {
   const page = await newPage(browser, () => {
     // 限定 delay injection: "delete race slow" を対象にした delete を含む readwrite transaction の
@@ -663,25 +688,23 @@ test("delete race: old delete completion keeps newer selection", async ({ browse
       });
     } as typeof IDBDatabase.prototype.transaction;
   });
-  const slowName = await saveAndWait(page, "delete race slow A body");
-  const keepName = await saveAndWait(page, "delete race keep B body");
-  await selectAndWait(page, "delete race slow");
-  await expect(page.locator("#read-name")).toHaveText(slowName);
+  await pasteNew(page, "delete race slow A body"); // A を選択 (read 表示確認)
+  await pasteNew(page, "delete race keep B body"); // B を選択しておく (A delete 中の選択維持確認用)
 
   dialogAction = "accept";
   await page.click("#delete"); // A delete 開始 (complete event は遅延)
-  await selectAndWait(page, "delete race keep"); // delete 完了前に B を選択
+  await pasteNew(page, "delete race again B body"); // delete 完了前に B を選択
   await page.waitForTimeout(800); // A の delete 完了を待つ
   dialogAction = "dismiss";
 
   // A の delete 完了後も B の選択・read 表示は壊れない。record は定義から消えている
-  await expect(page.locator("#read-name")).toHaveText(keepName);
-  expect(await readTextContent(page)).toBe("delete race keep B body");
-  await expect(page.locator("#record-count")).toHaveText("records: 1");
+  await expect(page.locator("#read-name")).toHaveText(/delete race again B body\.txt$/);
+  expect(await readTextContent(page)).toBe("delete race again B body");
+  await expect(page.locator("#record-count")).toHaveText("records: 2"); // A deleted; keep, again
   await page.click("#search"); // A が消えたことを Search でも確認
   await page.fill("#search-input", "delete race");
-  await expect(page.locator("#search-results button")).toHaveCount(1); // slow A は出ない
-  await expect(page.locator("#search-results button", { hasText: "delete race keep" })).toHaveCount(1);
+  await expect(page.locator("#search-results button")).toHaveCount(2); // slow A は出ない
+  await expect(page.locator("#search-results button", { hasText: "delete race again" })).toHaveCount(1);
   await page.keyboard.press("Escape");
 });
 
@@ -724,18 +747,18 @@ test("CSP: _headers applied, no console violations on production artifact", asyn
     const borderColor = await page.evaluate(() => getComputedStyle(document.querySelector("#read-text")!).borderColor);
     expect(borderColor).toBe("rgb(221, 221, 221)");
 
-    // JS 起動 + 実 IndexedDB: save → select → copy
-    const name = await saveAndWait(page, "csp body");
-    await selectAndWait(page, "csp body");
+    // JS 起動 + 実 IndexedDB: paste-as-new (保存 + record view 表示) → copy
+    const selName = await pasteNew(page, "csp body");
+    expect(await readTextContent(page)).toBe("csp body");
     await page.click("#copy");
-    await expect(page.locator("#read-result")).toContainText(`Copied: ${name}`);
+    await expect(page.locator("#read-result")).toContainText(`Copied: ${selName}`);
 
     // /sw.js registration 成功: 失敗時にのみ出る shell-state 表示が出ない
     await expect(page.locator("#shell-state")).toHaveText("");
 
     // export single / export all
     const [txt] = await Promise.all([page.waitForEvent("download"), page.click("#export-txt")]);
-    expect(txt.suggestedFilename()).toBe(name);
+    expect(txt.suggestedFilename()).toBe(selName);
     const [zip] = await Promise.all([page.waitForEvent("download"), page.click("#export-all")]);
     expect(zip.suggestedFilename()).toBe("spool-export.zip");
 
@@ -745,9 +768,276 @@ test("CSP: _headers applied, no console violations on production artifact", asyn
     dialogAction = "dismiss";
     await expect(page.locator("#record-count")).toHaveText("records: 0");
 
+    // Markdown Preview page も CSP 下で動く: script 起動 / BroadcastChannel handshake / render
+    await page.fill("#text", "# csp preview");
+    const popupPromise = page.context().waitForEvent("page");
+    await page.click("#open-preview");
+    const popup = await popupPromise;
+    popup.on("console", (m) => {
+      if (m.type() === "error") violations.push(m.text());
+    });
+    await expect(popup.locator("#preview-body h1")).toHaveText("csp preview");
+    await popup.close();
+
     expect(errors).toEqual([]);
     expect(violations.filter((t) => t.includes("Content-Security-Policy"))).toEqual([]);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+// Saved Record page (UI-DESIGN.md §10): 同一 origin 静的 page が実 IndexedDB から record を読み、
+// plain text (HTML 解釈なし / Markdown render なし) を restricted reading column に表示する。
+test("record page: found state, literal HTML text, no XSS, reading width; not-found and name-missing states", async ({ browser }) => {
+  const page = await newPage(browser);
+  const xssBody = "<script>alert(1)</script>\n日本語 本文 第2行\n<trailing tag>\n";
+  const name = await saveAndWait(page, xssBody);
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // found: page URL = record.html?name=<encoded>
+  await page.goto(`${base}/record.html?name=${encodeURIComponent(name)}`);
+  await expect(page.locator("#record-name")).toHaveText(name);
+  await expect(page.locator("#record-text")).toHaveText(xssBody); // literal 表示、script 実行なし
+  expect(await page.evaluate(() => (window as { alertCalled?: boolean }).alertCalled)).toBeUndefined();
+  await expect(page.locator("#record-copy")).toBeVisible();
+
+  // COPY: exact saved text → clipboard
+  await page.click("#record-copy");
+  await expect(page.locator("#record-state")).toContainText(`Copied: ${name}`);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(xssBody);
+
+  // reading column: width ~52rem cap で viewport 全幅に伸びない
+  const w = await page.evaluate(() => document.querySelector("#record-column")!.getBoundingClientRect().width);
+  expect(w).toBeGreaterThan(600);
+  expect(w).toBeLessThanOrEqual(52 * 16 + 1);
+
+  // not found / name missing: 小さな明示 error
+  await page.goto(`${base}/record.html?name=${encodeURIComponent("20260101-0000-not-there.txt")}`);
+  await expect(page.locator("#record-state")).toHaveText("Record not found.");
+  await page.goto(`${base}/record.html`);
+  await expect(page.locator("#record-state")).toHaveText("Record name missing.");
+});
+
+// Search → 別 tab の record page: popup の URL / 内容と、original tab の state 保持 (§6/§12)。
+test("search: Enter keeps original state while popup shows the record", async ({ browser }) => {
+  const page = await newPage(browser);
+  await saveAndWait(page, "popup target body");
+  await page.fill("#text", "popup test draft");
+  await page.click("#search");
+  await expect(page.locator("#search-input")).toBeFocused();
+  await page.locator("#search-results button").first().waitFor(); // openSearch の getAll 完了待ち
+  const popupPromise = page.context().waitForEvent("page");
+  await page.keyboard.press("Enter");
+  const popup = await popupPromise;
+  await expect(popup.locator("#record-text")).toHaveText("popup target body");
+  // original: Search open / query 空のまま / selected 維持 / preview 維持 / draft 維持
+  await expect(page.locator("#search-overlay")).toBeVisible();
+  await expect(page.locator("#search-preview-text")).toContainText("popup target body");
+  expect(await page.inputValue("#text")).toBe("popup test draft");
+  expect(await page.evaluate(() => document.body.dataset.view)).not.toBe("record");
+  await page.keyboard.press("Escape");
+});
+
+// ===== Markdown Preview (UI-DESIGN.md §2 Preview)。Composer 現行 textarea の derived read-only
+// render を別 tab で行う。BroadcastChannel は同一 context 内で有効なため、preview 系 test は
+// 1 context に Composer + Preview を置く (context をまたぐと channel が分離する)。
+
+/** preview test 共用: Composer page を 1 つ作る (既存 newPage と同型だが context を page から辿れる)。 */
+async function newComposerPage(browser: Browser, initScript?: () => void): Promise<Page> {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  if (initScript) await page.addInitScript(initScript);
+  await page.goto(base);
+  await expect(page.locator("#open-preview")).toBeVisible();
+  return page;
+}
+
+/** OPEN PREVIEW click → popup page。window.open は click handler 内の同期的に発火するため、
+ * waitForEvent は click の前に仕掛ける (§27 実装 review 要件の test 側での固定)。 */
+async function openPreview(page: Page): Promise<Page> {
+  const popupPromise = page.context().waitForEvent("page");
+  await page.click("#open-preview");
+  const popup = await popupPromise;
+  await popup.waitForLoadState("load");
+  return popup;
+}
+
+// OPEN PREVIEW: 別 tab に markdown-preview.html?session=<uuid> を開き、現行 source を render。
+// Composer は変更されない (§27)。
+test("markdown preview: OPEN PREVIEW renders current source in a separate tab, composer unchanged", async ({ browser }) => {
+  const page = await newComposerPage(browser);
+  await page.fill("#text", "# Hello\n\n**world**\n");
+  const popup = await openPreview(page);
+  const url = new URL(popup.url());
+  expect(url.pathname).toBe("/markdown-preview.html");
+  expect(url.searchParams.get("session")).toBeTruthy();
+  await expect(popup.locator("#preview-title")).toHaveText("MARKDOWN PREVIEW");
+  await expect(popup.locator("#preview-body h1")).toHaveText("Hello");
+  await expect(popup.locator("#preview-body strong")).toHaveText("world");
+  expect(await page.inputValue("#text")).toBe("# Hello\n\n**world**\n"); // Composer unchanged
+});
+
+// 長い code line: code block 内部 scroll で吸収され、page 全体に横 scroll が出ない (§18)。
+test("markdown preview: long code line scrolls inside pre, no page horizontal overflow", async ({ browser }) => {
+  const page = await newComposerPage(browser);
+  await page.fill("#text", "```text\n" + "x".repeat(5000) + "\n```\n");
+  const popup = await openPreview(page);
+  await expect(popup.locator("#preview-body pre")).toBeVisible();
+  const box = await popup.evaluate(() => {
+    const pre = document.querySelector("#preview-body pre")!;
+    return {
+      innerScroll: pre.scrollWidth > pre.clientWidth, // code block 内部 scroll
+      pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    };
+  });
+  expect(box.innerScroll).toBe(true);
+  expect(box.pageOverflow).toBe(false);
+});
+
+// live update: 同一 Composer tab の編集が同一 Preview tab に反映される。tab 増殖なし (§28)。
+test("markdown preview: live update without reopening", async ({ browser }) => {
+  const page = await newComposerPage(browser);
+  await page.fill("#text", "# First");
+  const popup = await openPreview(page);
+  await expect(popup.locator("#preview-body h1")).toHaveText("First");
+  await page.fill("#text", "# Second");
+  await expect(popup.locator("#preview-body h1")).toHaveText("Second");
+  expect(page.context().pages().length).toBe(2); // Composer + Preview のまま
+});
+
+// reload: Preview reload 後に ready handshake で現行 source を再取得する (§29)。
+test("markdown preview: reload re-syncs via ready handshake", async ({ browser }) => {
+  const page = await newComposerPage(browser);
+  await page.fill("#text", "# Reload check");
+  const popup = await openPreview(page);
+  await expect(popup.locator("#preview-body h1")).toHaveText("Reload check");
+  await popup.reload();
+  await expect(popup.locator("#preview-body h1")).toHaveText("Reload check"); // ready → source 再 reply
+});
+
+// session isolation: Composer tab 毎の UUID channel。A の編集は A Preview にのみ届く (§30)。
+test("markdown preview: two composer sessions never mix", async ({ browser }) => {
+  const pageA = await newComposerPage(browser);
+  const pageB = await newComposerPage(browser);
+  await pageA.fill("#text", "# Alpha");
+  await pageB.fill("#text", "# Beta");
+  const popupA = await openPreview(pageA);
+  const popupB = await openPreview(pageB);
+  await expect(popupA.locator("#preview-body h1")).toHaveText("Alpha");
+  await expect(popupB.locator("#preview-body h1")).toHaveText("Beta");
+  await pageA.fill("#text", "# Alpha Changed");
+  await expect(popupA.locator("#preview-body h1")).toHaveText("Alpha Changed");
+  await expect(popupB.locator("#preview-body h1")).toHaveText("Beta"); // B は混線しない
+});
+
+// security: raw HTML は文字表示のみ (script / event handler 実行なし)、javascript: link は
+// anchor として生成されない (§31)。
+test("markdown preview: raw script and javascript: link are inert", async ({ browser }) => {
+  const page = await newComposerPage(browser);
+  await page.fill("#text", '<script>window.__pwned = true</script>\n<img src=x onerror="window.__pwned = true">\n[bad](javascript:alert(1))\nplain **ok**');
+  const popup = await openPreview(page);
+  await expect(popup.locator("#preview-body strong")).toHaveText("ok"); // render 自体は生きている
+  expect(await popup.evaluate(() => (window as { __pwned?: unknown }).__pwned)).toBeUndefined();
+  expect(await popup.evaluate(() => document.querySelector("#preview-body script, #preview-body [onerror]"))).toBeNull();
+  const hrefs = await popup.evaluate(() => [...document.querySelectorAll("#preview-body a")].map((a) => (a.getAttribute("href") ?? "").toLowerCase()));
+  expect(hrefs.some((h) => h.startsWith("javascript:"))).toBe(false);
+});
+
+// Save 成功: existing semantics で textarea が clear されると preview も "Nothing to preview." (§32)。
+test("markdown preview: save success clears composer and preview", async ({ browser }) => {
+  const page = await newComposerPage(browser);
+  await page.fill("#text", "# draft to save");
+  const popup = await openPreview(page);
+  await expect(popup.locator("#preview-body h1")).toHaveText("draft to save");
+  await page.click("#save");
+  await expect(page.locator("#result")).toContainText("Saved:");
+  expect(await page.inputValue("#text")).toBe("");
+  await expect(popup.locator("#preview-state")).toHaveText("Nothing to preview.");
+});
+
+// Save 失敗: Composer draft 維持・preview も同じ source 維持 (§32)。fault injection: readwrite tx を
+// readonly に差し替え、addRecord が save_failed 経路に落ちるようにする (既存 pattern と同じ addInitScript)。
+test("markdown preview: save failure keeps composer draft and preview source", async ({ browser }) => {
+  const page = await newComposerPage(browser, () => {
+    const orig = IDBDatabase.prototype.transaction;
+    IDBDatabase.prototype.transaction = function (storeNames: string | string[], mode?: IDBTransactionMode, options?: IDBTransactionOptions) {
+      return orig.call(this, storeNames, mode === "readwrite" ? "readonly" : mode, options);
+    } as typeof IDBDatabase.prototype.transaction;
+  });
+  await page.fill("#text", "# failure keeps me");
+  const popup = await openPreview(page);
+  await expect(popup.locator("#preview-body h1")).toHaveText("failure keeps me");
+  await page.click("#save");
+  await expect(page.locator("#result")).toContainText("Failed: save_failed");
+  expect(await page.inputValue("#text")).toBe("# failure keeps me"); // draft 維持
+  await expect(popup.locator("#preview-body h1")).toHaveText("failure keeps me"); // preview も維持
+});
+
+// rail collapse / reopen: Preview session に影響しない。closed 中も live update 継続 (§20/§33)。
+test("markdown preview: rail collapse keeps preview session alive", async ({ browser }) => {
+  const page = await newComposerPage(browser);
+  await page.fill("#text", "# Rail test");
+  const popup = await openPreview(page);
+  await expect(popup.locator("#preview-body h1")).toHaveText("Rail test");
+  await page.click("#rail-toggle"); // rail closed
+  await page.fill("#text", "# Rail test changed");
+  await expect(popup.locator("#preview-body h1")).toHaveText("Rail test changed"); // closed 中も live
+  await page.click("#rail-toggle"); // rail open
+  await page.fill("#text", "# Rail test again");
+  await expect(popup.locator("#preview-body h1")).toHaveText("Rail test again");
+});
+
+// mobile 390: OPEN PREVIEW 到達可能 / tap → 別 tab / initial render (§21/§33)。inline pane は作らない。
+test("markdown preview: mobile 390 reachable with initial handshake", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 780 } });
+  const page = await context.newPage();
+  await page.goto(base);
+  await expect(page.locator("#open-preview")).toBeVisible();
+  await page.fill("#text", "# Mobile");
+  const popup = await openPreview(page);
+  await expect(popup.locator("#preview-body h1")).toHaveText("Mobile");
+});
+
+// window reuse: 同じ Composer の再 click は既存 Preview tab を再利用 (増殖なし)、閉じた後は新 tab (§34)。
+test("markdown preview: window reuse without duplicates, reopenable after close", async ({ browser }) => {
+  const page = await newComposerPage(browser);
+  await page.fill("#text", "# Reuse");
+  const popup = await openPreview(page);
+  await expect(popup.locator("#preview-body h1")).toHaveText("Reuse");
+  await page.click("#open-preview"); // 既存 tab を focus/reuse (ready handshake で再 render)
+  await page.waitForTimeout(300);
+  const popups = page.context().pages().filter((p) => p !== page);
+  expect(popups.length).toBe(1); // 増殖なし
+  expect(await popups[0].evaluate(() => window.opener)).toBeNull(); // opener は Composer open 直後に切断済み
+  await expect(popups[0].locator("#preview-body h1")).toHaveText("Reuse");
+  await popups[0].close();
+  const again = await openPreview(page); // 閉じた後は新しい tab
+  await expect(again.locator("#preview-body h1")).toHaveText("Reuse");
+});
+
+// 大きな paste: render storm にならず、debounce 内で最新 source に到達する (§35)。
+test("markdown preview: large paste stays responsive", async ({ browser }) => {
+  const page = await newComposerPage(browser);
+  const big = `${"big paragraph line\n".repeat(5_000)}# end marker`;
+  const popup = await openPreview(page); // 空 → empty state
+  await expect(popup.locator("#preview-state")).toHaveText("Nothing to preview.");
+  await page.fill("#text", big); // paste 相当
+  await expect(popup.locator("#preview-body h1")).toHaveText("end marker", { timeout: 10_000 });
+});
+
+// offline: SW shell (markdown-preview.html + 資産先取り) で OPEN PREVIEW が render まで通る。
+// BroadcastChannel 自体は network 不要 (§23)。
+test("markdown preview: offline shell opens and renders via handshake", async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(base);
+  await expect(page.locator("#save")).toBeVisible();
+  await expect(page.locator("#shell-state")).toHaveText(""); // SW registration 成功
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+  await page.fill("#text", "# Offline preview");
+  await context.setOffline(true); // preview を一度も online 開かずに offline open (install 時の資産先取りが効く)
+  const popup = await openPreview(page);
+  await expect(popup.locator("#preview-title")).toHaveText("MARKDOWN PREVIEW"); // Composer shell へ誤 fallback していない
+  await expect(popup.locator("#preview-body h1")).toHaveText("Offline preview");
+  await context.setOffline(false);
 });

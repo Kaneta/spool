@@ -29,7 +29,10 @@
         <div id="composer">
           <textarea id="text" placeholder="type or paste text here"></textarea>
         </div>
-        <button id="save" type="button">[ SAVE ]</button>
+        <div id="compose-actions">
+          <button id="save" type="button">[ SAVE ]</button>
+          <button id="open-preview" type="button">[ OPEN PREVIEW ]</button>
+        </div>
         <p id="result"></p>
       </section>
       <section id="view">
@@ -55,7 +58,13 @@
           <input id="search-input" type="text" aria-label="Query records" autocomplete="off" />
           <button id="search-clear" type="button" disabled>[ CLEAR ]</button>
         </div>
-        <ul id="search-results"></ul>
+        <div id="search-body">
+          <ul id="search-results"></ul>
+          <div id="search-preview" hidden>
+            <div id="search-preview-name"></div>
+            <pre id="search-preview-text"></pre>
+          </div>
+        </div>
         <div id="search-help">
           <span>↑↓ select&#160;&#160;&#160;&#160;Enter open</span>
           <button id="search-close" type="button">[ CLOSE ]</button>

@@ -6,8 +6,10 @@ import { addRecord, deleteRecord, listRecords, openDatabase, readAllRecords, rea
 import { searchRecords } from "./search";
 import { downloadZip } from "client-zip"; // §5.4: STORE 専用・dependency なしの小さな zip library
 import "./mobile.css"; // CSP default-src 'self' で inline style を許可しないため外部 file に分離 (pc.css と同構成)
+import { createPreviewLink, type PreviewLink } from "./preview-link";
 
 const textarea = document.querySelector<HTMLTextAreaElement>("#text")!;
+const openPreviewButton = document.querySelector<HTMLButtonElement>("#open-preview")!;
 const saveButton = document.querySelector<HTMLButtonElement>("#save")!;
 const result = document.querySelector<HTMLParagraphElement>("#result")!;
 const searchButton = document.querySelector<HTMLButtonElement>("#search")!;
@@ -16,6 +18,9 @@ const searchInput = document.querySelector<HTMLInputElement>("#search-input")!;
 const searchResults = document.querySelector<HTMLUListElement>("#search-results")!;
 const searchClear = document.querySelector<HTMLButtonElement>("#search-clear")!;
 const searchClose = document.querySelector<HTMLButtonElement>("#search-close")!;
+const searchPreview = document.querySelector<HTMLElement>("#search-preview")!;
+const searchPreviewName = document.querySelector<HTMLElement>("#search-preview-name")!;
+const searchPreviewText = document.querySelector<HTMLPreElement>("#search-preview-text")!;
 const readArea = document.querySelector<HTMLElement>("#read")!;
 const emptyState = document.querySelector<HTMLElement>("#empty-state")!;
 const readName = document.querySelector<HTMLElement>("#read-name")!;
@@ -43,6 +48,23 @@ let deleteGeneration = 0;
 // 成功時のみ、後続の初期化 (event 登録 / 一覧再構築 / persistence / app shell) を行う。
 // 失敗時は requestPersistence も呼ばない: storageState は利用不能表示を保持する
 // (persistence 結果表示で「利用不能」を上書きしない。shell 表示は別要素のため registerAppShell は実行する)。
+// ===== Markdown Preview link (UI-DESIGN.md §12)。Composer-local 動作: storage と無関係。
+// IndexedDB が使えなくても preview は有効なため、ここは setupStorageUi の外で wiring する。
+// 1 Composer tab = 1 ephemeral session (crypto.randomUUID, 永続保存しない → reload で新 session)。
+const previewLink: PreviewLink | null = createPreviewLink(() => textarea.value);
+openPreviewButton.addEventListener("click", () => {
+  if (previewLink !== null) {
+    previewLink.openPreview();
+  } else {
+    // BroadcastChannel / randomUUID 非対応環境: 裏の session が無いこと preview page 自身が明示する (§15)
+    window.open("markdown-preview.html", "spool-markdown-preview:none", "noopener");
+  }
+});
+// textarea input (typing / paste / cut / browser 由来) のたびに現行 source を preview へ。scheduler なし (§11)
+textarea.addEventListener("input", () => {
+  previewLink?.send(textarea.value);
+});
+
 let db: IDBDatabase | null = null;
 try {
   db = await openDatabase();
@@ -213,7 +235,11 @@ async function pasteAsNew(): Promise<void> {
 function showSaved(name: string, savedText: string): void {
   result.textContent = `Saved: ${name}`;
   // 保存開始時 snapshot と現在の textarea が同じ場合だけ clear。古い非同期完了が新しい入力を消さない。
-  if (textarea.value === savedText) textarea.value = "";
+  if (textarea.value === savedText) {
+    textarea.value = "";
+    // programmatic 変更 (input event は fire しない) も preview の「現在の textarea 内容」に反映 (§13)
+    previewLink?.send("");
+  }
 }
 
 function showFailed(cause: string, detail: string): void {
@@ -293,7 +319,9 @@ async function openSearch(): Promise<void> {
   renderSearch();
 }
 
-/** 現在の query で session cache を filter (既存 chronological 降順のまま)。ranking なし。filename のみ表示。 */
+/** 現在の query で session cache を filter (既存 chronological 降順のまま)。ranking なし。filename のみ表示。
+ * 選択中の session record (既存 getAll data) を右 preview pane へ read-only 表示する。
+ * preview は選択変更のたびにこの cache から更新し、record 1 件ごとの追加 IDB read は行わない。 */
 function renderSearch(): void {
   const matched = searchRecords(searchInput.value, searchSession);
   searchClear.disabled = searchInput.value.length === 0; // CLEAR は query non-empty のときだけ有効
@@ -307,12 +335,33 @@ function renderSearch(): void {
     button.classList.toggle("selected", i === searchIndex); // reverse-video 選択行
     button.tabIndex = -1; // result row は Tab stop に入れない (Arrow/Enter/click で操作)
     button.addEventListener("click", () => {
-      void openFromSearch(record.name);
+      openRecordTab(record.name); // click は今の session を残したまま別 tab で open
     });
     li.append(button);
     fragment.append(li);
   });
   searchResults.replaceChildren(fragment);
+  renderPreview(matched[searchIndex]);
+}
+
+/** preview: session cache の 1 record。plain text (textContent のみ)。results なしのときは小さい empty state。 */
+function renderPreview(record: StoredRecord | undefined): void {
+  searchPreview.hidden = false; // desktop (>= ~721px) でのみ CSS が表示する。mobile は pane ごと display:none
+  if (record === undefined) {
+    searchPreviewName.textContent = "";
+    searchPreviewText.textContent = "No matching record.";
+    return;
+  }
+  searchPreviewName.textContent = record.name;
+  searchPreviewText.textContent = record.text; // session cache から。HTML として解釈しない
+}
+
+/** Search からの open: Saved Record page を別 tab で open (UI-DESIGN.md §10)。
+ * user gesture 内で同期的に window.open (popup blocker 対策)。record 名だけを URL に encode し、
+ * 本文は載せない。blob/data URL は使わず、同一 origin の静的 record page を既定経路にする。
+ * overlay・query・session・選択・preview・Composer draft は全部そのまま (探索を続けられる)。 */
+function openRecordTab(name: string): void {
+  window.open(`record.html?name=${encodeURIComponent(name)}`, "_blank", "noopener");
 }
 
 function closeSearch(): void {
@@ -320,12 +369,6 @@ function closeSearch(): void {
   searchOverlay.hidden = true;
   searchSession = []; // 閉じたら session cache も破棄
   searchButton.focus(); // SEARCH button へ focus を戻す
-}
-
-/** Search からの open: 既存 selectRecord (stale guard 含む) を使う。別の read pipeline は作らない。 */
-async function openFromSearch(name: string): Promise<void> {
-  await selectRecord(name);
-  closeSearch();
 }
 
 /** Tab / Shift+Tab を overlay 内 control (input → CLEAR → CLOSE) に限定する。
@@ -353,7 +396,7 @@ function searchKeydown(e: KeyboardEvent): void {
     e.preventDefault();
     const matched = searchRecords(searchInput.value, searchSession);
     if (searchIndex >= matched.length) return;
-    void openFromSearch(matched[searchIndex]!.name);
+    openRecordTab(matched[searchIndex]!.name); // gesture 内で同期 open。overlay は open のまま
   }
 }
 
