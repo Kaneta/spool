@@ -153,17 +153,22 @@ test("paste as new: clipboard failure shows visible error, Composer unchanged", 
   await expect(page.locator("#record-count")).toHaveText("records: 0");
 });
 
-// 右 pane: 初期は常時表示の empty state。record を選ぶと表示が入れ替わる。
-test("right pane empty state: visible until a record is selected", async ({ browser }) => {
+// record view: permanent pane は廃止済み。record 未選択の間は Composer が表示され、
+// 選択すると既存 registry swap で record view に置き換わる (§3 transitional)。
+test("record view: hidden until a record is selected, then replaces Composer", async ({ browser }) => {
   const page = await newPage(browser);
-  await expect(page.locator("#empty-state")).toBeVisible();
-  await expect(page.locator("#empty-state")).toHaveText("Select a record to view it here.");
+  await expect(page.locator("#view")).toBeHidden(); // 常設 pane ではない
   await saveAndWait(page, "empty state body");
   await selectAndWait(page, "empty state body");
+  await expect(page.locator("#view")).toBeVisible();
   await expect(page.locator("#empty-state")).toBeHidden();
   await expect(page.locator("#read")).toBeVisible();
+  await expect(page.locator("#back")).toBeVisible();
   await expect(page.locator("#copy")).toBeEnabled();
   await expect(page.locator("#delete")).toBeEnabled();
+  await page.click("#back");
+  await expect(page.locator("#view")).toBeHidden();
+  await expect(page.locator("#text")).toBeVisible();
 });
 
 // mobile (390×780): Search → Record view → Back → Composer。Search は再 open 可能。
@@ -255,6 +260,8 @@ test("search keyboard: arrows move selection, Enter opens, Esc closes; no global
   await expect(page.locator("#search-overlay")).toBeHidden();
 
   // global shortcut は無い: Composer focus 中の `/` も通常 text。Ctrl+K で検索も開かない
+  await page.click("#back"); // composer view へ戻る (record view が Composer を置換する既存行為)
+  await expect(page.locator("#text")).toBeVisible();
   await page.click("#text");
   await page.keyboard.type("slash / test");
   await expect(page.locator("#search-overlay")).toBeHidden();
@@ -263,27 +270,136 @@ test("search keyboard: arrows move selection, Enter opens, Esc closes; no global
   await expect(page.locator("#search-overlay")).toBeHidden(); // Ctrl/Cmd+K は Search を開かない
 });
 
-// desktop layout: 長い本文で document が伸びない。pane 内 scroll。footer も viewport 内に維持。
-test("layout: long record scrolls inside pane, document height unchanged", async ({ browser }) => {
+// wide (1920×1080): left rail | centered Composer | right rail。Composer は 52rem を超えない。
+// record 本文は pane 内 scroll。document は伸びない (viewport shell 維持)。
+test("layout wide: rails visible, Composer centered at ~52rem, long record scrolls inside pane", async ({ browser }) => {
   const page = await newPage(browser);
-  const text = `long record body\n${"padding line\n".repeat(500)}`;
-  await saveAndWait(page, text);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await expect(page.locator("#left-rail")).toBeVisible();
+  await expect(page.locator("#right-rail")).toBeVisible();
+  await expect(page.locator("#focus")).toBeVisible();
+  await expect(page.locator("#focus").getAttribute("aria-label")).resolves.toBe("Enter focus mode");
+  await saveAndWait(page, `long record body\n${"padding line\n".repeat(500)}`);
   await selectAndWait(page, "long record");
   await expect(page.locator("#read-text")).toBeVisible();
 
   const m = await page.evaluate(() => {
     const doc = document.documentElement;
+    const main = document.querySelector("main")!;
+    const text = document.querySelector("#text")!;
     const readText = document.querySelector("#read-text")!;
     return {
+      mainRect: main.getBoundingClientRect(),
+      innerWidth: window.innerWidth,
+      textWidth: text.getBoundingClientRect().width,
       noPageGrowth: doc.scrollHeight <= doc.clientHeight,
       readScrollable: readText.scrollHeight > readText.clientHeight,
-      footerBottom: document.querySelector("footer")!.getBoundingClientRect().bottom,
-      innerHeight: window.innerHeight,
+      rem: parseFloat(getComputedStyle(document.documentElement).fontSize),
     };
   });
+  expect(m.textWidth).toBeLessThanOrEqual(52 * m.rem + 2); // textarea は ~52rem を超えない
+  expect(m.textWidth).toBeLessThan(m.innerWidth); // viewport 全幅に広げない
+  expect(m.mainRect.left).toBeGreaterThan(0); // 左 rail 分の余白
+  expect(m.mainRect.right).toBeLessThan(m.innerWidth);
+  expect(Math.abs(m.mainRect.left + m.mainRect.width / 2 - m.innerWidth / 2)).toBeLessThan(2); // 中央
   expect(m.noPageGrowth).toBe(true); // record 本文のため document 全体を scroll させない
   expect(m.readScrollable).toBe(true); // record text は pane 内で scroll
-  expect(m.footerBottom).toBeLessThanOrEqual(m.innerHeight); // footer の骨格位置が保たれる
+});
+
+// focus (wide): 周辺 UI を消し、Composer 幅・draft・caret を維持。× は viewport 右上、click で復帰。
+test("focus mode: peripheral UI hidden, Composer width preserved, exit restores normal", async ({ browser }) => {
+  const page = await newPage(browser);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const draft = "focus draft これは下書き";
+  await page.fill("#text", draft);
+  await page.click("#text");
+  await page.keyboard.press("End"); // caret を本文末尾へ
+
+  await page.click("#focus");
+  await expect(page.locator("#left-rail")).toBeHidden();
+  await expect(page.locator("#right-rail")).toBeHidden();
+  await expect(page.locator("#focus")).toBeHidden();
+  await expect(page.locator("#exit-focus")).toBeVisible();
+  await expect(page.locator("#export-all")).toBeHidden();
+  await expect(page.locator("#search")).toBeHidden();
+  await expect(page.locator("#paste-as-new")).toBeHidden();
+  expect(await page.inputValue("#text")).toBe(draft);
+
+  const gem = await page.evaluate(() => {
+    const text = document.querySelector("#text")!;
+    (text as HTMLTextAreaElement & { _mark?: boolean })._mark = true;
+    text.scrollTop = 4;
+    const r = text.getBoundingClientRect();
+    const exit = document.querySelector("#exit-focus")!;
+    const e = exit.getBoundingClientRect();
+    return {
+      mark: (text as HTMLTextAreaElement & { _mark?: boolean })._mark === true,
+      textWidth: r.width,
+      exitRight: window.innerWidth - e.right,
+      exitTop: e.top,
+      rem: parseFloat(getComputedStyle(document.documentElement).fontSize),
+    };
+  });
+  await page.waitForTimeout(100); // 可能な限り scroll 位置を観測できるまで待つ
+  const after = await page.evaluate(() => {
+    const text = document.querySelector<HTMLTextAreaElement>("#text")!;
+    return {
+      sameMark: (text as HTMLTextAreaElement & { _mark?: boolean })._mark === true,
+      scrollTop: text.scrollTop,
+      selection: text.selectionStart,
+      value: text.value,
+      textWidth: text.getBoundingClientRect().width,
+    };
+  });
+  expect(gem.textWidth).toBeLessThanOrEqual(52 * gem.rem + 2); // 幅は normal と同じ
+  expect(after.sameMark).toBe(true); // 同一 textarea DOM (mode 切替で再構築されない)
+  expect(after.value).toBe(draft);
+  expect(after.textWidth).toBe(gem.textWidth);
+  expect(gem.exitRight).toBeLessThanOrEqual(16); // viewport 右上
+  expect(gem.exitTop).toBeLessThanOrEqual(16);
+
+  await page.click("#exit-focus");
+  await expect(page.locator("#left-rail")).toBeVisible();
+  await expect(page.locator("#right-rail")).toBeVisible();
+  await expect(page.locator("#exit-focus")).toBeHidden();
+  expect(await page.inputValue("#text")).toBe(draft); // normal 復帰・draft 維持
+  expect(await page.evaluate(() => document.body.getAttribute("data-mode"))).toBe(null);
+});
+
+// narrow (960×800): rails は横並び rail ではなく top bar + command row。Composer は 1 column。
+// Focus button は表示され、Focus 中は周辺 UI が消える。
+test("layout narrow: top bar + one-column Composer, focus works", async ({ browser }) => {
+  const page = await newPage(browser);
+  await page.setViewportSize({ width: 960, height: 800 });
+  await expect(page.locator("#left-rail")).toBeVisible();
+  await expect(page.locator("#right-rail")).toBeVisible();
+  await expect(page.locator("#focus")).toBeVisible();
+  await expect(page.locator("#text")).toBeVisible();
+  await page.fill("#text", "narrow focus draft");
+  await page.click("#focus");
+  await expect(page.locator("#left-rail")).toBeHidden();
+  await expect(page.locator("#right-rail")).toBeHidden();
+  await expect(page.locator("#exit-focus")).toBeVisible();
+  expect(await page.inputValue("#text")).toBe("narrow focus draft");
+  await page.click("#exit-focus");
+  await expect(page.locator("#left-rail")).toBeVisible();
+  await expect(page.locator("#text")).toBeVisible();
+});
+
+// mobile (390×780): layout 壊れない・Focus 使える・入力維持・exit 可能。
+test("mobile focus: Focus button works, draft preserved, exit possible", async ({ browser }) => {
+  const page = await newPage(browser);
+  await page.setViewportSize({ width: 390, height: 780 });
+  await page.fill("#text", "mobile focus draft");
+  await page.click("#focus");
+  await expect(page.locator("#left-rail")).toBeHidden();
+  await expect(page.locator("#right-rail")).toBeHidden();
+  await expect(page.locator("#exit-focus")).toBeVisible();
+  expect(await page.inputValue("#text")).toBe("mobile focus draft");
+  await page.click("#exit-focus");
+  await expect(page.locator("#left-rail")).toBeVisible();
+  await expect(page.locator("#text")).toBeVisible();
+  expect(await page.inputValue("#text")).toBe("mobile focus draft");
 });
 
 // search polish (human acceptance): prompt なし / CLEAR / CLOSE / backdrop close / Tab loop。

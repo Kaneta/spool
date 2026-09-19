@@ -31,6 +31,8 @@ const shellState = document.querySelector<HTMLParagraphElement>("#shell-state")!
 const pasteAsNewButton = document.querySelector<HTMLButtonElement>("#paste-as-new")!;
 const backButton = document.querySelector<HTMLButtonElement>("#back")!;
 const recordCount = document.querySelector<HTMLElement>("#record-count")!;
+const focusButton = document.querySelector<HTMLButtonElement>("#focus")!;
+const exitFocusButton = document.querySelector<HTMLButtonElement>("#exit-focus")!;
 
 let selectedName: string | null = null; // ephemeral は選択 state のみ。一覧は毎回 IndexedDB から読む (第二正本を作らない)
 // 操作単位の小さな generation (PC 側 main.pc.ts と同じ pattern, §4.4): 最後に開始した select / delete だけが
@@ -91,6 +93,14 @@ function setupStorageUi(database: IDBDatabase): void {
   });
   searchButton.addEventListener("click", () => {
     void openSearch();
+  });
+  // Focus mode (UI-DESIGN.md Focus mode): state は body[data-mode] normal | focus の 2 値のみ。
+  // CSS で周辺 UI を消すだけ。textarea DOM / draft / caret は触らない。Fullscreen API / persistence なし。
+  focusButton.addEventListener("click", () => {
+    document.body.dataset.mode = "focus";
+  });
+  exitFocusButton.addEventListener("click", () => {
+    delete document.body.dataset.mode; // normal へ。record view state (data-view) は保持される
   });
   // key handling は Search input focus 中のみ。global keydown は登録しない
   searchInput.addEventListener("input", () => {

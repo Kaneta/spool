@@ -95,57 +95,109 @@ Search is not a permanent pane.
 
 ### Preview
 
-The right pane shows either:
+There is no permanent preview / record pane in the current layout.
 
 1. Markdown preview of the current Composer, or
-2. a selected saved record.
+2. a selected saved record
 
-Saved records remain read-only.
-
-An optional `OPEN PREVIEW` command may open the Markdown preview in a separate
-browser tab.
-
-The separate preview receives Composer updates through `BroadcastChannel`.
-
-The preview is derived state only.
-It does not save or edit records.
+are possible future presentation modes. Saved records remain read-only.
+A separate-tab preview would receive Composer updates through
+`BroadcastChannel`; it adds no storage behavior and edits nothing.
+Until such a mode is implemented, opened records use the transitional
+record view described in §3.
 
 ---
 
-## 3. Desktop layout
+## 3. Normal layout
 
-Desktop uses two primary panes.
+Layout state is:
 
-    ┌──────────────────────────────────────────────────────────────────────┐
-    │ Spool                                  [ SEARCH ] [ PASTE AS NEW ]   │
-    ├──────────────────────────────────┬───────────────────────────────────┤
-    │ COMPOSE                          │ PREVIEW / RECORD                  │
-    │                                  │                                   │
-    │ ┌──────────────────────────────┐ │ # Markdown preview               │
-    │ │                              │ │                                   │
-    │ │ plain text / markdown        │ │ or                                │
-    │ │                              │ │                                   │
-    │ │                              │ │ selected saved record            │
-    │ │                              │ │                                   │
-    │ │                              │ │                                   │
-    │ └──────────────────────────────┘ │                                   │
-    │                                  │                                   │
-    ├──────────────────────────────────┼───────────────────────────────────┤
-    │ [ SAVE ]   [ OPEN PREVIEW ↗ ]    │ [ COPY ] [ EXPORT ] [ DELETE ]   │
-    └──────────────────────────────────┴───────────────────────────────────┘
-      records: 128              storage: persistent
+    normal | focus
 
-The Composer should be large enough to work as a simple Web notepad.
+There is no rail open/close state, no third layout mode, and no viewport
+width state in JS. Responsive behavior is CSS media query only, with one
+breakpoint.
 
-Do not reserve a permanent pane for the record list.
+### Wide normal layout
 
-Records are retrieved through Search (Phase 2).
+At wide viewports the surplus horizontal space around the Composer is used
+for two UI rails:
 
+    ┌──────────────────┬──────────────────────────────────┬──────────────────┐
+    │ spool            │ COMPOSE                          │ SEARCH           │
+    │ records: 123     │                          [ ⛶ ]   │ PASTE AS NEW     │
+    │ storage: ...     │ ┌──────────────────────────────┐ │ EXPORT ALL       │
+    │                  │ │ textarea                     │ │                  │
+    │                  │ └──────────────────────────────┘ │                  │
+    │                  │ [ SAVE ]                         │                  │
+    └──────────────────┴──────────────────────────────────┴──────────────────┘
+
+- Left rail: spool title, record count, storage / app-shell state.
+- Right rail: commands — `SEARCH`, `PASTE AS NEW` (primary), `EXPORT ALL`.
+- The central Composer column has `max-width: ~52rem`. Even at 1920px the
+  textarea is not stretched to full width; line width stays stable.
+- `PASTE AS NEW` remains visually primary.
+- Status is carried by the rails; the header is not stacked on top of the
+  Composer (the Composer first line is not pushed down unnecessarily).
+
+The breakpoint is a single value (implemented at 1281px): at or above is
+wide, below is narrow. No multi-step breakpoints.
+
+### Narrow normal layout
+
+Below the breakpoint the rails are not squeezed: the left rail contents
+become a top bar and the right rail contents become a command row:
+
+    ┌──────────────────────────────────────────────┐
+    │ spool  records: N  storage: ...              │
+    ├──────────────────────────────────────────────┤
+    │ COMPOSE                              [ ⛶ ]  │
+    │ textarea                                     │
+    │ [ SAVE ]                                     │
+    └──────────────────────────────────────────────┘
+    │ [ SEARCH ] [ PASTE AS NEW ] [ EXPORT ALL ]   │
+
+The Composer keeps its max-width and shrinks naturally within the available
+width on mobile.
+
+### Record view (transitional)
+
+There is no permanent Saved Record Preview pane. When a record is opened
+(Search result click, Paste as New), the existing record view replaces the
+Composer view; `BACK TO COMPOSE` returns to the Composer. This is the
+Phase 3 transitional behavior; no permanent record pane is reintroduced.
+
+### Focus mode
+
+Focus state is `normal | focus` only, expressed on `body`. No URL state, no
+persistence; reload starts in normal. The Browser Fullscreen API is not
+used.
+
+- Normal mode: a small fullscreen-style Focus button (inline SVG, not a
+  text button, no icon library) sits at the top-right of the Composer text
+  area, belonging to the text area like a chat code-block copy button.
+  `aria-label: Enter focus mode`.
+- Focus mode: rails, top bar, status / commands, Search and Record view UI
+  are hidden. Only the same-width Composer (+ SAVE) remains centered.
+  Focus removes peripheral UI; it never widens the prose.
+- Exit: a `×` fixed at the top-right of the viewport (not the Composer
+  corner), `aria-label: Exit focus mode`. The Normal Focus icon and the
+  Focus × never share position or shape: Normal → Focus is a local action
+  belonging to the text area; Focus → Normal is a global action ending the
+  screen state. This asymmetry is canonical.
+- Save remains usable in focus; draft, scroll position and caret are
+  preserved (the textarea DOM is never rebuilt for a mode change).
+
+### Principle
+
+Wide screen: use surplus horizontal space for controls.
+Narrow screen: move controls above/around content.
+Focus: remove peripheral UI, do not widen prose.
 ---
 
 ## 4. Search overlay
 
-Search is a temporary overlay over the normal two-pane layout.
+Search is a temporary overlay over the normal layout.
 
 Example:
 
@@ -180,7 +232,8 @@ Interaction:
 When the query is empty, show recent records in the existing chronological
 order. Each row shows the filename only; long names truncate with ellipsis.
 
-Selecting a record closes Search and opens that record in the right pane.
+Selecting a record closes Search and opens that record in the record view
+(§3).
 Record-pane semantics, including stale-read guards, are unchanged.
 
 Search should feel closer to dmenu / command palette behavior than to a
@@ -234,40 +287,20 @@ These may be reconsidered only if simple substring search proves insufficient.
 
 ## 6. Mobile layout
 
-Mobile is not a miniature two-column desktop layout.
-
-Use one main view at a time.
-
-Default:
-
-    ┌─────────────────────────────┐
-    │ Spool                       │
-    │ [ SEARCH ] [ PASTE AS NEW ] │
-    ├─────────────────────────────┤
-    │ COMPOSE                     │
-    │                             │
-    │ ┌─────────────────────────┐ │
-    │ │                         │ │
-    │ │ plain text / markdown   │ │
-    │ │                         │ │
-    │ │                         │ │
-    │ └─────────────────────────┘ │
-    │                             │
-    │ [ SAVE ] [ PREVIEW ]        │
-    └─────────────────────────────┘
-
-Preview / selected record replaces the Composer view rather than being squeezed
-beside it.
+Mobile is the narrow layout of §3: top bar + one-column Composer + command
+row, not a miniature desktop layout. Use one main view at a time.
 
 Search remains an overlay.
 
 ### Mobile integration
 
 - default view is the Composer
-- `[ SEARCH ]` stays reachable in the header
+- `[ SEARCH ]` stays reachable in the command row
 - a Search result closes the overlay and moves to the Record view
 - `BACK TO COMPOSE` returns to the Composer
 - the overlay spans the viewport width on mobile; it is not a separate screen
+- Focus mode works on mobile: Focus button in the Composer corner, `×` at
+  the viewport top-right, peripheral UI hidden, same Composer width
 
 The Phase 1 RECENT list is removed; the Search overlay (empty query = recent
 records) is the single retrieval mechanism.
@@ -373,7 +406,7 @@ Transitions should be short or absent.
 
 Saved records are read-only.
 
-When a saved record is open in the right pane:
+When a saved record is open in the record view:
 
     ┌─ RECORD ────────────────────────────────────┐
     │ 20260919-0945-example.txt                  │

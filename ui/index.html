@@ -6,17 +6,26 @@
     <title>spool</title>
   </head>
   <body>
-    <header id="app-header">
-      <h1>spool</h1>
-      <div id="header-commands">
-        <button id="search" type="button">[ SEARCH ]</button>
-        <button id="paste-as-new" type="button">[ PASTE AS NEW ]</button>
-      </div>
-    </header>
+    <div id="left-rail">
+      <h1 id="app-title">spool</h1>
+      <p id="record-count"></p>
+      <p id="storage-state"></p>
+      <p id="shell-state"></p>
+    </div>
     <main>
       <section id="compose">
         <h2>COMPOSE</h2>
-        <textarea id="text" placeholder="type or paste text here"></textarea>
+        <div id="composer">
+          <button id="focus" type="button" aria-label="Enter focus mode" title="Focus">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path d="M6 1H1v5" />
+              <path d="M10 1h5v5" />
+              <path d="M15 10v5h-5" />
+              <path d="M6 15H1v-5" />
+            </svg>
+          </button>
+          <textarea id="text" placeholder="type or paste text here"></textarea>
+        </div>
         <button id="save" type="button">[ SAVE ]</button>
         <p id="result"></p>
       </section>
@@ -36,6 +45,18 @@
         <p id="read-result"></p>
       </section>
     </main>
+    <div id="right-rail">
+      <button id="search" type="button">[ SEARCH ]</button>
+      <button id="paste-as-new" type="button">[ PASTE AS NEW ]</button>
+      <button id="export-all" type="button">[ EXPORT ALL ]</button>
+      <p id="export-result"></p>
+    </div>
+    <button id="exit-focus" type="button" aria-label="Exit focus mode" title="Exit focus mode">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <path d="M2 2l12 12" />
+        <path d="M14 2L2 14" />
+      </svg>
+    </button>
     <div id="search-overlay" hidden>
       <div id="search-box" role="dialog" aria-label="Search records">
         <div id="search-title">SEARCH RECORDS</div>
@@ -50,13 +71,6 @@
         </div>
       </div>
     </div>
-    <footer>
-      <button id="export-all" type="button">[ EXPORT ALL ]</button>
-      <p id="record-count"></p>
-      <p id="export-result"></p>
-      <p id="storage-state"></p>
-      <p id="shell-state"></p>
-    </footer>
     <script type="module" src="/src/main.mobile.ts"></script>
   </body>
 </html>
