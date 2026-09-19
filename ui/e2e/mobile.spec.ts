@@ -187,6 +187,17 @@ test("mobile: search → record view → back → composer restored, search reop
   await expect(page.locator("#search-results li button")).toHaveCount(1); // empty query = recent records
   await page.keyboard.press("Escape"); // Esc close は mobile でも機能する
   await expect(page.locator("#search-overlay")).toBeHidden();
+
+  // backdrop tap → close。focus は SEARCH に戻る
+  await page.click("#search");
+  await page.click("#search-overlay", { position: { x: 20, y: 20 } }); // box 外 = backdrop
+  await expect(page.locator("#search-overlay")).toBeHidden();
+
+  // [ CLOSE ] tap → close
+  await page.click("#search");
+  await page.click("#search-close");
+  await expect(page.locator("#search-overlay")).toBeHidden();
+  await expect(page.locator("#search")).toBeFocused();
 });
 
 // Search overlay (desktop): open → autofocus → empty query = recent records → 日本語 AND 検索 filter →
@@ -273,6 +284,89 @@ test("layout: long record scrolls inside pane, document height unchanged", async
   expect(m.noPageGrowth).toBe(true); // record 本文のため document 全体を scroll させない
   expect(m.readScrollable).toBe(true); // record text は pane 内で scroll
   expect(m.footerBottom).toBeLessThanOrEqual(m.innerHeight); // footer の骨格位置が保たれる
+});
+
+// search polish (human acceptance): prompt なし / CLEAR / CLOSE / backdrop close / Tab loop。
+test("search polish: prompt-free input, CLEAR, CLOSE, backdrop close, tab loop", async ({ browser }) => {
+  const page = await newPage(browser);
+  await saveAndWait(page, "polish target body");
+  await page.click("#search");
+
+  // 1. terminal prompt なし: placeholder も `>` も残さない
+  expect(await page.locator("#search-input").getAttribute("placeholder")).toBe(null);
+
+  // 4. CLEAR: query を戻すだけで、overlay は open のまま・input に focus
+  await page.fill("#search-input", "存在しない key");
+  await expect(page.locator("#search-results li button")).toHaveCount(0);
+  await expect(page.locator("#search-clear")).toBeEnabled();
+  await page.click("#search-clear");
+  await expect(page.locator("#search-input")).toHaveValue("");
+  await expect(page.locator("#search-results li button")).toHaveCount(1); // recent records 復元
+  await expect(page.locator("#search-clear")).toBeDisabled();
+  await expect(page.locator("#search-input")).toBeFocused();
+  await expect(page.locator("#search-overlay")).toBeVisible();
+
+  // 3. backdrop click → close / box 内 click → close しない
+  await page.mouse.click(10, 10);
+  await expect(page.locator("#search-overlay")).toBeHidden();
+  await page.click("#search");
+  await page.click("#search-title");
+  await expect(page.locator("#search-overlay")).toBeVisible();
+
+  // 5. CLOSE click → close。focus は SEARCH へ
+  await page.click("#search-close");
+  await expect(page.locator("#search-overlay")).toBeHidden();
+  await expect(page.locator("#search")).toBeFocused();
+
+  // 7. Tab loop: overlay 内 input ⇄ CLEAR ⇄ CLOSE。result row / 背後の UI には抜けない
+  await page.click("#search");
+  await page.fill("#search-input", "polish"); // CLEAR enabled
+  const focusId = () => page.evaluate(() => document.activeElement?.id ?? "");
+  await page.keyboard.press("Tab");
+  expect(await focusId()).toBe("search-clear");
+  await page.keyboard.press("Tab");
+  expect(await focusId()).toBe("search-close");
+  await page.keyboard.press("Tab");
+  expect(await focusId()).toBe("search-input");
+  await page.keyboard.press("Shift+Tab");
+  expect(await focusId()).toBe("search-close");
+  await page.keyboard.press("Shift+Tab");
+  expect(await focusId()).toBe("search-clear");
+  // Escape は overlay 内のどの control focus でも close する
+  await page.keyboard.press("Escape"); // CLEAR focused
+  await expect(page.locator("#search-overlay")).toBeHidden();
+
+  // overlay 外 (SEARCH button focused) の Esc は捕捉しない
+  await page.click("#search");
+  await page.click("#search-close"); // close → focus は SEARCH (overlay 外)
+  await expect(page.locator("#search-overlay")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#search-overlay")).toBeHidden(); // reopen しない
+
+  // input focus / CLOSE focus からの Esc
+  await page.click("#search");
+  await expect(page.locator("#search-input")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#search-overlay")).toBeHidden();
+  await page.click("#search");
+  await page.keyboard.press("Tab"); // focus = CLEAR (空 query なので CLOSE は次)
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#search-overlay")).toBeHidden();
+});
+
+// 長い filename の検索結果でも横 scroll は出ない。filename は 1 行 + ellipsis (visual polish)。
+test("search: long filename does not cause horizontal overflow", async ({ browser }) => {
+  const page = await newPage(browser);
+  const longLine = `long ${"x".repeat(200)} end`;
+  await saveAndWait(page, longLine);
+  await page.click("#search");
+  await expect(page.locator("#search-results li button")).toHaveCount(1);
+  const overflow = await page.evaluate(() => {
+    const results = document.querySelector("#search-results")!;
+    return results.scrollWidth - results.clientWidth;
+  });
+  expect(overflow).toBeLessThanOrEqual(1); // overflow-x は発生しない (ellipssis で truncate)
+  await page.keyboard.press("Escape");
 });
 
 // Bug 5 regression: IndexedDB open 失敗が UI に見え、Save 等が disabled になり、

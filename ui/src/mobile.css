@@ -126,6 +126,7 @@ main h2 { border-bottom: 1px solid var(--line-soft); padding-bottom: 4px; margin
   flex-direction: column;
 }
 #search-title { padding: 4px 8px; border-bottom: 1px solid var(--line-soft); color: var(--muted); }
+#search-row { display: flex; align-items: stretch; }
 #search-input {
   font: inherit;
   color: var(--fg);
@@ -135,28 +136,47 @@ main h2 { border-bottom: 1px solid var(--line-soft); padding-bottom: 4px; margin
   padding: 8px;
   outline: none;
   width: 100%;
+  flex: 1;
+  min-width: 0;
 }
+#search-row #search-clear, #search-help button { min-height: 32px; }
 #search-results {
   list-style: none;
   margin: 0;
   padding: 0;
   max-height: 40vh;
-  overflow-y: auto;
+  min-width: 0; /* flex child: 長い filename で横に押し広げない */
+  overflow-x: hidden;
+  overflow-y: auto; /* vertical scroll のみ */
 }
+#search-results li { min-width: 0; }
 #search-results li button {
-  all: unset;
+  all: unset; /* 経: all:unset 後に intrinsic width が親を越えないよう box-sizing で固定 */
   cursor: pointer;
   display: block;
+  box-sizing: border-box;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 4px 8px;
   font: inherit;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis; /* 長い filename は安全に truncate */
+  text-overflow: ellipsis;
 }
 #search-results li button:hover { background: #efefef; }
 #search-results li button.selected { background: var(--accent-bg); color: var(--accent-fg); }
-#search-help { padding: 4px 8px; border-top: 1px solid var(--line-soft); color: var(--muted); }
+#search-help {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+}
+/* keyboard focus 可視性: all:unset で消えないよう aesthetic 内で確保 */
+#search-box button:focus-visible { outline: 1px solid var(--fg); outline-offset: -4px; }
 
 footer {
   display: flex;

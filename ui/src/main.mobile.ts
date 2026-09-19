@@ -14,6 +14,8 @@ const searchButton = document.querySelector<HTMLButtonElement>("#search")!;
 const searchOverlay = document.querySelector<HTMLElement>("#search-overlay")!;
 const searchInput = document.querySelector<HTMLInputElement>("#search-input")!;
 const searchResults = document.querySelector<HTMLUListElement>("#search-results")!;
+const searchClear = document.querySelector<HTMLButtonElement>("#search-clear")!;
+const searchClose = document.querySelector<HTMLButtonElement>("#search-close")!;
 const readArea = document.querySelector<HTMLElement>("#read")!;
 const emptyState = document.querySelector<HTMLElement>("#empty-state")!;
 const readName = document.querySelector<HTMLElement>("#read-name")!;
@@ -96,6 +98,32 @@ function setupStorageUi(database: IDBDatabase): void {
     renderSearch();
   });
   searchInput.addEventListener("keydown", searchKeydown);
+  // Escape: overlay open 中は overlay 内のどの control でも close。overlay 外では捕捉しない
+  // (document / window の global keydown は登録しない。overlay 内 bubbled event のみ)
+  searchOverlay.addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Escape") {
+      e.preventDefault();
+      closeSearch();
+    }
+  });
+  // CLEAR: query だけを戻す。overlay を閉じない・Composer/選択 record に触らない
+  searchClear.addEventListener("click", () => {
+    searchInput.value = "";
+    searchIndex = 0;
+    renderSearch();
+    searchInput.focus();
+  });
+  // CLOSE / backdrop / Escape は同じ closeSearch() を使う
+  searchClose.addEventListener("click", () => {
+    closeSearch();
+  });
+  searchOverlay.addEventListener("click", (e) => {
+    if (e.target === searchOverlay) closeSearch(); // box 内部の click では close しない
+  });
+  // Tab / Shift+Tab: overlay 内 control (input → CLEAR → CLOSE) を循環。Tab を global には扱わない
+  for (const control of [searchInput, searchClear, searchClose]) {
+    control.addEventListener("keydown", (e) => searchTabKey(e as KeyboardEvent));
+  }
   void refreshRecordCount(database); // reload 後の件数表示。retrieval は Search overlay が担う
   void requestPersistence(); // §5.5: 初回利用準備。eviction されにくくする要求であり保存成功条件ではない (Baseline §6)
   registerAppShell(); // §5.5: offline app shell。準備失敗は shell 機能のみに影響し保存と混ぜない
@@ -256,6 +284,7 @@ async function openSearch(): Promise<void> {
 /** 現在の query で session cache を filter (既存 chronological 降順のまま)。ranking なし。filename のみ表示。 */
 function renderSearch(): void {
   const matched = searchRecords(searchInput.value, searchSession);
+  searchClear.disabled = searchInput.value.length === 0; // CLEAR は query non-empty のときだけ有効
   if (searchIndex >= matched.length) searchIndex = Math.max(0, matched.length - 1);
   const fragment = document.createDocumentFragment();
   matched.forEach((record, i) => {
@@ -264,6 +293,7 @@ function renderSearch(): void {
     button.type = "button";
     button.textContent = record.name; // filename only。HTML として解釈しない
     button.classList.toggle("selected", i === searchIndex); // reverse-video 選択行
+    button.tabIndex = -1; // result row は Tab stop に入れない (Arrow/Enter/click で操作)
     button.addEventListener("click", () => {
       void openFromSearch(record.name);
     });
@@ -286,12 +316,19 @@ async function openFromSearch(name: string): Promise<void> {
   closeSearch();
 }
 
+/** Tab / Shift+Tab を overlay 内 control (input → CLEAR → CLOSE) に限定する。
+ * disabled CLEAR は order から外れる (native skip と同义)。result row は含めない。overlay open 中のみ有効。 */
+function searchTabKey(e: KeyboardEvent): void {
+  if (e.key !== "Tab") return;
+  e.preventDefault();
+  const order = [searchInput, searchClear, searchClose].filter((el) => !el.disabled);
+  const index = order.indexOf(document.activeElement as HTMLButtonElement);
+  const next = e.shiftKey ? (index <= 0 ? order.length - 1 : index - 1) : (index >= order.length - 1 ? 0 : index + 1);
+  order[next]?.focus();
+}
+
 function searchKeydown(e: KeyboardEvent): void {
-  if (e.key === "Escape") {
-    e.preventDefault();
-    closeSearch();
-    return;
-  }
+  // Arrow / Enter のみ input 固有。Escape は overlay 層で処理する
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault(); // Arrow は Search 内でのみ扱い、cursor 移動はさせない
     const matched = searchRecords(searchInput.value, searchSession);

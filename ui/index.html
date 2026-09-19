@@ -39,9 +39,15 @@
     <div id="search-overlay" hidden>
       <div id="search-box" role="dialog" aria-label="Search records">
         <div id="search-title">SEARCH RECORDS</div>
-        <input id="search-input" type="text" aria-label="Query records" placeholder="> " autocomplete="off" />
+        <div id="search-row">
+          <input id="search-input" type="text" aria-label="Query records" autocomplete="off" />
+          <button id="search-clear" type="button" disabled>[ CLEAR ]</button>
+        </div>
         <ul id="search-results"></ul>
-        <div id="search-help">↑↓ select&#160;&#160;&#160;&#160;Enter open&#160;&#160;&#160;&#160;Esc close</div>
+        <div id="search-help">
+          <span>↑↓ select&#160;&#160;&#160;&#160;Enter open</span>
+          <button id="search-close" type="button">[ CLOSE ]</button>
+        </div>
       </div>
     </div>
     <footer>

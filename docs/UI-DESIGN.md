@@ -150,16 +150,35 @@ Search is a temporary overlay over the normal two-pane layout.
 Example:
 
     ┌─ SEARCH RECORDS ───────────────────────────────────────────────┐
-    │ > 空調 設定                                                   │
+    │ search text...                                    [ CLEAR ]   │
     ├───────────────────────────────────────────────────────────────┤
     │ 20260918-0932-空調設定変更.txt                               │
     │ 20260911-1540-東側空調.txt                                    │
     ├───────────────────────────────────────────────────────────────┤
-    │ ↑↓ select        Enter open        Esc close                  │
+    │ ↑↓ select   Enter open                          [ CLOSE ]     │
     └───────────────────────────────────────────────────────────────┘
 
+Interaction:
+
+- Open: `[ SEARCH ]` button only. The input autofocuses and is a plain text
+  field: no terminal prompt, no `$`, no prompt placeholder.
+- Query: plain typed text. `[ CLEAR ]` empties the query and restores the
+  recent-records view while keeping the overlay open. It is disabled when the
+  query is empty.
+- Results: one filename per row, ellipsis truncated, never horizontal
+  scrolling (vertical only). Result rows are not Tab stops.
+- Selection: ArrowUp / ArrowDown; Enter opens the selected row; row
+  click / tap opens.
+- Close: `[ CLOSE ]`, backdrop click/tap, or Escape — all use the same close
+  path. Clicks inside the search box do not close.
+- Tab / Shift+Tab: restricted to input → `[ CLEAR ]` → `[ CLOSE ]` while the
+  overlay is open (disabled CLEAR is skipped). Focus must not escape behind
+  the overlay.
+- The visible keyboard hint is `↑↓ select   Enter open` only; the `Esc close`
+  hint is not shown.
+
 When the query is empty, show recent records in the existing chronological
-order. Each row shows the filename only; long names truncate with CSS.
+order. Each row shows the filename only; long names truncate with ellipsis.
 
 Selecting a record closes Search and opens that record in the right pane.
 Record-pane semantics, including stale-read guards, are unchanged.
