@@ -77,6 +77,113 @@ async function selectAndWait(page: Page, title: string): Promise<void> {
   await expect(page.locator("#read-name")).toContainText(title);
 }
 
+// Paste as New: clipboard → 既存 save pipeline → 即保存 → 右 pane read-only 表示。
+// Composer を経由しない 1 click 操作であることを固定する。空 clipboard は既存 save rules に委任
+// (新規に拒否 rule を作らない: Save で空を入れても同様に保存される)。
+test("paste as new: clipboard text becomes a record without touching the Composer", async ({ browser }) => {
+  const page = await newPage(browser);
+  const clip = "ペースト本文 clipboard body\n2行目: line2";
+  const draft = "composer draft これは保存されていない下書き";
+  await page.evaluate((text) => navigator.clipboard.writeText(text), clip);
+  await page.fill("#text", draft); // Composer に別内容の draft を先に入れておく
+  await page.click("#paste-as-new");
+
+  const button = page.locator("#list button", { hasText: "ペースト本文" });
+  await expect(button).toHaveCount(1); // list: 会話に出る
+  await expect(page.locator("#read")).toBeVisible(); // 保存直後の record を表示
+  await expect(page.locator("#read-name")).toContainText("ペースト本文");
+  expect(await readTextContent(page)).toBe(clip); // 保存内容は clipboard text
+  expect(await page.inputValue("#text")).toBe(draft); // Composer は draft のまま。save 経路を通っていない
+
+  // 空 clipboard も既存 save rules に従う (空 record として append). paste-as-new 単独の特別扱いはしない
+  await page.evaluate(() => navigator.clipboard.writeText(""));
+  await page.click("#paste-as-new");
+  await expect(page.locator("#list li")).toHaveCount(2);
+});
+
+// Paste as New の連打: 1 回目の clipboard read 中の再 click は無視される (concurrent guard)。
+// 同一 clipboard 内容で 2 record は作らない。
+test("paste as new: rapid double invocation does not create duplicate records", async ({ browser }) => {
+  const page = await newPage(browser, () => {
+    // 限定 fault injection: readText の解決を test 側で手動解除する。resolver は window に置く
+    // (production への hook ではなく、この context 内の test kit)。
+    let pending: ((text: string) => void) | null = null;
+    (window as { resolveClipboard?: () => void }).resolveClipboard = () => {
+      const r = pending;
+      pending = null;
+      r?.("double guard body");
+    };
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        readText: () => new Promise<string>((resolve) => {
+          pending = resolve;
+        }),
+      },
+    });
+  });
+  await page.click("#paste-as-new");
+  await page.click("#paste-as-new"); // read 待ちの間にもう一度 click
+  await page.evaluate(() => (window as { resolveClipboard?: () => void }).resolveClipboard?.());
+
+  await expect(page.locator("#read-text")).toHaveText("double guard body", { timeout: 5_000 });
+  await expect(page.locator("#list li")).toHaveCount(1);
+  await expect(page.locator("#paste-as-new")).toBeEnabled(); // 失敗/成功後も再び使える
+});
+
+// clipboard read 失敗: user-visible error・Composer 保持・silent fallback なし。
+test("paste as new: clipboard failure shows visible error, Composer unchanged", async ({ browser }) => {
+  const page = await newPage(browser, () => {
+    // 限定 fault injection: readText だけを常に失敗させる
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { readText: () => Promise.reject(new DOMException("injected denial", "NotAllowedError")) },
+    });
+  });
+  await page.fill("#text", "composer must stay");
+  await page.click("#paste-as-new");
+  await expect(page.locator("#result")).toContainText("Failed: clipboard_read");
+  expect(await page.inputValue("#text")).toBe("composer must stay");
+  await expect(page.locator("#list li")).toHaveCount(0);
+});
+
+// 右 pane: 初期は常時表示の empty state。record を選ぶと表示が入れ替わる。
+test("right pane empty state: visible until a record is selected", async ({ browser }) => {
+  const page = await newPage(browser);
+  await expect(page.locator("#empty-state")).toBeVisible();
+  await expect(page.locator("#empty-state")).toHaveText("Select a record to view it here.");
+  await saveAndWait(page, "empty state body");
+  await selectAndWait(page, "empty state body");
+  await expect(page.locator("#empty-state")).toBeHidden();
+  await expect(page.locator("#read")).toBeVisible();
+  await expect(page.locator("#copy")).toBeEnabled();
+  await expect(page.locator("#delete")).toBeEnabled();
+});
+
+// mobile (390×780): Composer + RECENT → Record view → Back → Composer + RECENT → 再度 record view へ。
+// data-view の実装詳細ではなく user-visible behavior を固定する。
+test("mobile: compose + recent → record → back → recent stays reachable", async ({ browser }) => {
+  const page = await newPage(browser);
+  await page.setViewportSize({ width: 390, height: 780 }); // mobile viewport に切り替えてから検証する
+  await expect(page.locator("#text")).toBeVisible(); // 1. initial = Composer
+  await expect(page.locator("#recent")).toBeVisible(); // 2. RECENT visible
+  await saveAndWait(page, "mobile transition body");
+
+  await page.locator("#list button", { hasText: "mobile transition" }).click(); // 3. select from RECENT
+  await expect(page.locator("#read-name")).toContainText("mobile transition"); // 4. Record view
+  await expect(page.locator("#text")).toBeHidden();
+  await expect(page.locator("#recent")).toBeVisible();
+  await expect(page.locator("#back")).toBeVisible();
+
+  await page.click("#back"); // 5. Back
+  await expect(page.locator("#text")).toBeVisible(); // 6. Composer
+  await expect(page.locator("#recent")).toBeVisible(); // 7. RECENT visible
+
+  await page.locator("#list button", { hasText: "mobile transition" }).click(); // 8. RECENT item 再選択
+  await expect(page.locator("#read-name")).toContainText("mobile transition"); // 9. Record view に再入
+  await expect(page.locator("#text")).toBeHidden();
+});
+
 // Bug 5 regression: IndexedDB open 失敗が UI に見え、Save 等が disabled になり、
 // fallback storage に逃がさないこと。open だけを常に失敗させる限定 fault injection。
 test("IndexedDB open failure: visible error, Save disabled, no fallback", async ({ browser }) => {

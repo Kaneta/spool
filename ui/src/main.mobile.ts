@@ -11,6 +11,7 @@ const saveButton = document.querySelector<HTMLButtonElement>("#save")!;
 const result = document.querySelector<HTMLParagraphElement>("#result")!;
 const listElement = document.querySelector<HTMLUListElement>("#list")!;
 const readArea = document.querySelector<HTMLElement>("#read")!;
+const emptyState = document.querySelector<HTMLElement>("#empty-state")!;
 const readName = document.querySelector<HTMLElement>("#read-name")!;
 const readText = document.querySelector<HTMLPreElement>("#read-text")!;
 const copyButton = document.querySelector<HTMLButtonElement>("#copy")!;
@@ -21,6 +22,9 @@ const exportAllButton = document.querySelector<HTMLButtonElement>("#export-all")
 const exportResult = document.querySelector<HTMLParagraphElement>("#export-result")!;
 const storageState = document.querySelector<HTMLParagraphElement>("#storage-state")!;
 const shellState = document.querySelector<HTMLParagraphElement>("#shell-state")!;
+const pasteAsNewButton = document.querySelector<HTMLButtonElement>("#paste-as-new")!;
+const backButton = document.querySelector<HTMLButtonElement>("#back")!;
+const recordCount = document.querySelector<HTMLElement>("#record-count")!;
 
 let selectedName: string | null = null; // ephemeral は選択 state のみ。一覧は毎回 IndexedDB から読む (第二正本を作らない)
 // 操作単位の小さな generation (PC 側 main.pc.ts と同じ pattern, §4.4): 最後に開始した select / delete だけが
@@ -47,6 +51,7 @@ try {
 
 function setDisabled(disabled: boolean): void {
   saveButton.disabled = disabled;
+  pasteAsNewButton.disabled = disabled;
   copyButton.disabled = disabled;
   deleteButton.disabled = disabled;
   exportTxtButton.disabled = disabled;
@@ -56,7 +61,14 @@ function setDisabled(disabled: boolean): void {
 
 function setupStorageUi(database: IDBDatabase): void {
   saveButton.addEventListener("click", () => {
-    void saveNew();
+    void commitNew(textarea.value);
+  });
+  pasteAsNewButton.addEventListener("click", () => {
+    void pasteAsNew();
+  });
+  backButton.addEventListener("click", () => {
+    // mobile 最小 navigation: 選択は保持し、compose view に戻るだけ
+    document.body.dataset.view = "compose";
   });
   copyButton.addEventListener("click", () => {
     void copySelected();
@@ -75,39 +87,72 @@ function setupStorageUi(database: IDBDatabase): void {
   registerAppShell(); // §5.5: offline app shell。準備失敗は shell 機能のみに影響し保存と混ぜない
 }
 
-async function saveNew(): Promise<void> {
-  const text = textarea.value; // snapshot: 保存内容と完了時の比較はこれで固定 (§4.4)
+/** 共通 append pipeline: name 生成 / 衝突 suffix / IndexedDB tx。source は呼び出し側が固定する。
+ * 完了時は保存 snapshot と textarea が一致する場合だけ Composer を clear する (Save 後の現行 behavior)。
+ * 返り値は保存確定した record name。失敗時は null (表示 text "Saved: ..." を state の代わりに使わない)。 */
+async function commitNew(sourceText: string): Promise<string | null> {
+  const text = sourceText; // snapshot: 保存内容と完了時の比較はこれで固定 (§4.4)
   const prefix = capturedAtPrefix(new Date()); // 開始時に一度だけ。衝突 retry でも進めない (§3.3)
   const title = deriveTitle(text);
   saveButton.disabled = true;
+  pasteAsNewButton.disabled = true;
   try {
     for (let suffix = 0; ; suffix += 1) {
       const name = candidateName(prefix, title, suffix);
       if (!isNameWithinLimit(name)) {
         showFailed("name_conflict", `${name}: suffix を付けると 255 UTF-8 byte を超える`);
-        return;
+        return null;
       }
       let outcome: AddOutcome;
       try {
         outcome = await addRecord(db!, { name, text }); // tx 開始自体の失敗 (unavailable / invalid state) も保存未成立
       } catch (e) {
         showFailed("save_failed", e instanceof Error ? `${e.name}: ${e.message}` : String(e));
-        return;
+        return null;
       }
       if (outcome.kind === "committed") {
         showSaved(name, text);
         await refreshList(db!); // tx complete → Saved 表示 → list refresh。失敗時は refresh しない
-        return;
+        return name;
       }
       if (outcome.kind === "conflict") continue; // 同じ時刻・同じ title のまま suffix を進める (§3.5)
       showFailed(
         "save_failed",
         outcome.error instanceof Error ? `${outcome.error.name}: ${outcome.error.message}` : String(outcome.error),
       );
-      return;
+      return null;
     }
   } finally {
     saveButton.disabled = false;
+    pasteAsNewButton.disabled = false;
+  }
+}
+
+/** Paste as New: clipboard → 共通 save pipeline → 即保存 → 保存した record を read-only 表示。
+ * textarea を経由しない 1 click 操作。clipboard read 失敗時は Composer を変更しない。
+ * clipboard read 前に concurrent invocation を guard する (rapid 正押しで同内容を2 record にしない)。 */
+let pasteBusy = false;
+async function pasteAsNew(): Promise<void> {
+  if (pasteBusy) return;
+  pasteBusy = true;
+  try {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (e) {
+      showFailed(
+        "clipboard_read",
+        e instanceof Error ? `${e.name}: ${e.message}` : String(e), // user-visible error。silent fallback しない
+      );
+      return;
+    }
+    const name = await commitNew(text);
+    if (name !== null) {
+      await selectRecord(name); // 保存直後の record を右 pane に表示して明示する
+      document.body.dataset.view = "record";
+    }
+  } finally {
+    pasteBusy = false; // success / clipboard failure のどちらの経路でも操作可能状態へ戻る
   }
 }
 
@@ -143,6 +188,7 @@ async function refreshList(database: IDBDatabase): Promise<void> {
     fragment.append(li);
   }
   listElement.replaceChildren(fragment);
+  recordCount.textContent = `records: ${names.length}`;
   markSelected();
   // 復旧したら残っていた List failed 表示を消す。persistence 表示 (storageState の通常 role) は壊さない
   if (storageState.textContent.startsWith("List failed: ")) storageState.textContent = "";
@@ -162,13 +208,17 @@ async function selectRecord(name: string): Promise<void> {
   if (record === undefined) {
     selectedName = null;
     readArea.hidden = true;
+    emptyState.hidden = false;
     readName.textContent = "";
     readText.textContent = "";
+    document.body.dataset.view = "compose";
   } else {
     selectedName = name;
     readArea.hidden = false;
+    emptyState.hidden = true;
     readName.textContent = record.name;
     readText.textContent = record.text; // plain text 表示。HTML として解釈しない
+    document.body.dataset.view = "record"; // mobile: record を選んだら record view へ
   }
   markSelected();
   readResult.textContent = ""; // record を切り替えたら前の操作結果表示は消す
@@ -214,8 +264,10 @@ async function deleteSelected(): Promise<void> {
     // tx complete 後のみ: 選択 clear → read area clear
     selectedName = null;
     readArea.hidden = true;
+    emptyState.hidden = false;
     readName.textContent = "";
     readText.textContent = "";
+    document.body.dataset.view = "compose";
   }
   updateActionButtons();
 }

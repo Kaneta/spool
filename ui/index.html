@@ -6,33 +6,49 @@
     <title>spool</title>
   </head>
   <body>
+    <header id="app-header">
+      <h1>spool</h1>
+      <div id="header-commands">
+        <button id="search" type="button" disabled title="search: Phase 2">[ SEARCH ]</button>
+        <button id="paste-as-new" type="button">[ PASTE AS NEW ]</button>
+      </div>
+    </header>
     <main>
-      <section>
-        <h2>capture</h2>
-        <textarea id="text" placeholder="paste text here"></textarea>
-        <button id="save" type="button">Save</button>
+      <section id="compose">
+        <h2>COMPOSE</h2>
+        <textarea id="text" placeholder="type or paste text here"></textarea>
+        <button id="save" type="button">[ SAVE ]</button>
         <p id="result"></p>
       </section>
-      <section>
-        <h2>records</h2>
-        <ul id="list"></ul>
-        <div id="export-all-row"><button id="export-all" type="button">Export all</button></div>
-        <p id="export-result"></p>
-        <p id="storage-state"></p>
-        <p id="shell-state"></p>
-      </section>
-      <section id="read" hidden>
-        <h2>selected record</h2>
-        <div id="read-name"></div>
-        <pre id="read-text"></pre>
-        <div id="read-actions">
-          <button id="copy" type="button" disabled>Copy</button>
-          <button id="export-txt" type="button" disabled>Export .txt</button>
-          <button id="delete" type="button" disabled>Delete</button>
+      <section id="view">
+        <div id="record-area">
+          <h2>RECORD</h2>
+          <p id="empty-state">Select a record to view it here.</p>
+          <div id="read" hidden>
+            <div id="read-name"></div>
+            <pre id="read-text"></pre>
+          </div>
+          <div id="read-actions">
+            <button id="back" type="button">[ BACK TO COMPOSE ]</button>
+            <button id="copy" type="button" disabled>[ COPY ]</button>
+            <button id="export-txt" type="button" disabled>[ EXPORT ]</button>
+            <button id="delete" type="button" disabled>[ DELETE ]</button>
+          </div>
+          <p id="read-result"></p>
         </div>
-        <p id="read-result"></p>
+        <div id="recent">
+          <h2>RECENT</h2>
+          <ul id="list"></ul>
+          <p id="export-result"></p>
+          <p id="export-all-row"><button id="export-all" type="button">[ EXPORT ALL ]</button></p>
+        </div>
       </section>
     </main>
+    <footer>
+      <p id="record-count"></p>
+      <p id="storage-state"></p>
+      <p id="shell-state"></p>
+    </footer>
     <script type="module" src="/src/main.mobile.ts"></script>
   </body>
 </html>
