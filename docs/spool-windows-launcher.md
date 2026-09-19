@@ -141,7 +141,7 @@ platform ごとに別 design / 別 SVG は持たない。
 
 ## 10. 後回し
 
-* installer
+* installer → `scripts/install-spool-windows.ps1` (`docs/spool-windows-installer.md`)
 * toast notification
 * console 非表示 (`-H windowsgui`)
 * clipboard image / HTML / RTF support
