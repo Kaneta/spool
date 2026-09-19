@@ -58,22 +58,29 @@ async function newPage(browser: Browser, initScript?: () => void): Promise<Page>
 const readTextContent = (page: Page): Promise<string | null> =>
   page.locator("#read-text").evaluate((el) => el.textContent);
 
-/** save → Saved 表示 → list 反映待ち。返り値は list に出現した button text (record name)。
- * name を #result から取ると前回 save の "Saved:" にすぐ一致してしまう (stale 表示) ため list から読む。 */
+/** save → Saved 表示待ち。RECENT list は撤去済みのため name は #result ("Saved: <name>") から取る。
+ * 前回 save の表示が残るため、#result の text が変化したことを待ってから読む。 */
 async function saveAndWait(page: Page, text: string): Promise<string> {
   await page.fill("#text", text);
+  const before = await page.textContent("#result");
   await page.click("#save");
-  const firstLine = text.split("\n")[0]!.trim();
-  const button = page.locator("#list button", { hasText: firstLine });
-  await expect(button).toHaveCount(1);
-  const name = (await button.textContent()) ?? "";
+  await page.waitForFunction(
+    (prev) => document.querySelector("#result")?.textContent !== prev && (document.querySelector("#result")?.textContent ?? "").startsWith("Saved: "),
+    before,
+    { timeout: 5_000 },
+  );
+  const name = ((await page.textContent("#result")) ?? "").slice("Saved: ".length);
   expect(name.length).toBeGreaterThan(0);
   return name;
 }
 
-/** list click → read 表示の切り替え待ち (selectRecord は async read を含むため race 対策)。 */
+/** Search overlay を開いて title で検索 → 先頭の一致行を click → read 表示の切り替え待ち。
+ * selectRecord は async read を含むため race 対策として read-name を待つ。 */
 async function selectAndWait(page: Page, title: string): Promise<void> {
-  await page.locator("#list button", { hasText: title }).click();
+  await page.click("#search");
+  await expect(page.locator("#search-input")).toBeFocused();
+  await page.fill("#search-input", title);
+  await page.locator("#search-results button", { hasText: title }).first().click();
   await expect(page.locator("#read-name")).toContainText(title);
 }
 
@@ -88,8 +95,7 @@ test("paste as new: clipboard text becomes a record without touching the Compose
   await page.fill("#text", draft); // Composer に別内容の draft を先に入れておく
   await page.click("#paste-as-new");
 
-  const button = page.locator("#list button", { hasText: "ペースト本文" });
-  await expect(button).toHaveCount(1); // list: 会話に出る
+  await expect(page.locator("#record-count")).toHaveText("records: 1"); // 新 record が保存されている
   await expect(page.locator("#read")).toBeVisible(); // 保存直後の record を表示
   await expect(page.locator("#read-name")).toContainText("ペースト本文");
   expect(await readTextContent(page)).toBe(clip); // 保存内容は clipboard text
@@ -98,7 +104,7 @@ test("paste as new: clipboard text becomes a record without touching the Compose
   // 空 clipboard も既存 save rules に従う (空 record として append). paste-as-new 単独の特別扱いはしない
   await page.evaluate(() => navigator.clipboard.writeText(""));
   await page.click("#paste-as-new");
-  await expect(page.locator("#list li")).toHaveCount(2);
+  await expect(page.locator("#record-count")).toHaveText("records: 2");
 });
 
 // Paste as New の連打: 1 回目の clipboard read 中の再 click は無視される (concurrent guard)。
@@ -127,7 +133,7 @@ test("paste as new: rapid double invocation does not create duplicate records", 
   await page.evaluate(() => (window as { resolveClipboard?: () => void }).resolveClipboard?.());
 
   await expect(page.locator("#read-text")).toHaveText("double guard body", { timeout: 5_000 });
-  await expect(page.locator("#list li")).toHaveCount(1);
+  await expect(page.locator("#record-count")).toHaveText("records: 1");
   await expect(page.locator("#paste-as-new")).toBeEnabled(); // 失敗/成功後も再び使える
 });
 
@@ -144,7 +150,7 @@ test("paste as new: clipboard failure shows visible error, Composer unchanged", 
   await page.click("#paste-as-new");
   await expect(page.locator("#result")).toContainText("Failed: clipboard_read");
   expect(await page.inputValue("#text")).toBe("composer must stay");
-  await expect(page.locator("#list li")).toHaveCount(0);
+  await expect(page.locator("#record-count")).toHaveText("records: 0");
 });
 
 // 右 pane: 初期は常時表示の empty state。record を選ぶと表示が入れ替わる。
@@ -160,28 +166,113 @@ test("right pane empty state: visible until a record is selected", async ({ brow
   await expect(page.locator("#delete")).toBeEnabled();
 });
 
-// mobile (390×780): Composer + RECENT → Record view → Back → Composer + RECENT → 再度 record view へ。
-// data-view の実装詳細ではなく user-visible behavior を固定する。
-test("mobile: compose + recent → record → back → recent stays reachable", async ({ browser }) => {
+// mobile (390×780): Search → Record view → Back → Composer。Search は再 open 可能。
+// Phase 1 RECENT は撤去済みのため retrieval は Search overlay 一本。
+test("mobile: search → record view → back → composer restored, search reopenable", async ({ browser }) => {
   const page = await newPage(browser);
   await page.setViewportSize({ width: 390, height: 780 }); // mobile viewport に切り替えてから検証する
-  await expect(page.locator("#text")).toBeVisible(); // 1. initial = Composer
-  await expect(page.locator("#recent")).toBeVisible(); // 2. RECENT visible
-  await saveAndWait(page, "mobile transition body");
+  await saveAndWait(page, "mobile search body");
+  await expect(page.locator("#text")).toBeVisible(); // default = Composer view
 
-  await page.locator("#list button", { hasText: "mobile transition" }).click(); // 3. select from RECENT
-  await expect(page.locator("#read-name")).toContainText("mobile transition"); // 4. Record view
+  await selectAndWait(page, "mobile search body"); // search open → 選択
+  await expect(page.locator("#read-name")).toContainText("mobile search"); // Record view へ移動
   await expect(page.locator("#text")).toBeHidden();
-  await expect(page.locator("#recent")).toBeVisible();
   await expect(page.locator("#back")).toBeVisible();
 
-  await page.click("#back"); // 5. Back
-  await expect(page.locator("#text")).toBeVisible(); // 6. Composer
-  await expect(page.locator("#recent")).toBeVisible(); // 7. RECENT visible
+  await page.click("#back"); // Back → Composer
+  await expect(page.locator("#text")).toBeVisible();
 
-  await page.locator("#list button", { hasText: "mobile transition" }).click(); // 8. RECENT item 再選択
-  await expect(page.locator("#read-name")).toContainText("mobile transition"); // 9. Record view に再入
-  await expect(page.locator("#text")).toBeHidden();
+  await page.click("#search"); // 再度 open 可能
+  await expect(page.locator("#search-overlay")).toBeVisible();
+  await expect(page.locator("#search-results li button")).toHaveCount(1); // empty query = recent records
+  await page.keyboard.press("Escape"); // Esc close は mobile でも機能する
+  await expect(page.locator("#search-overlay")).toBeHidden();
+});
+
+// Search overlay (desktop): open → autofocus → empty query = recent records → 日本語 AND 検索 filter →
+// result click で閉じて右 pane に表示。Composer draft は壊さない。
+test("search: open, recent, Japanese filter, result opens record, draft preserved", async ({ browser }) => {
+  const page = await newPage(browser);
+  const name = await saveAndWait(page, "空調 設定を変更しました 東側ラウンジ");
+  await saveAndWait(page, "unrelated other memo");
+  await expect(page.locator("#search")).toBeEnabled();
+
+  await page.fill("#text", "draft must remain"); // Composer draft
+  await page.click("#search");
+  await expect(page.locator("#search-overlay")).toBeVisible();
+  await expect(page.locator("#search-input")).toBeFocused(); // open 時 autofocus
+  await expect(page.locator("#search-results li button")).toHaveCount(2); // empty query = recent records
+  await expect(page.locator("#search-results li button", { hasText: "unrelated other" })).toHaveCount(1); // 両 record が recent に出る
+
+  await page.fill("#search-input", "空調 設定"); // 日本語 AND: 両 token を含む record のみ
+  await expect(page.locator("#search-results li button")).toHaveCount(1);
+  await expect(page.locator("#search-results li button")).toHaveText(name);
+
+  await page.fill("#search-input", "一致しない語 xyz"); // non-match は消える
+  await expect(page.locator("#search-results li button")).toHaveCount(0);
+
+  await page.fill("#search-input", "空調");
+  await page.locator("#search-results button").first().click(); // mouse selection
+  await expect(page.locator("#search-overlay")).toBeHidden(); // click で close
+  await expect(page.locator("#read-name")).toHaveText(name); // 右 pane に表示
+  expect(await readTextContent(page)).toContain("東側ラウンジ");
+  await expect(page.locator("#empty-state")).toBeHidden();
+  expect(await page.inputValue("#text")).toBe("draft must remain"); // Composer draft は維持
+});
+
+// keyboard inside overlay only: Arrow/Enter/Esc。検索外では通常入力 (/ は Composer の文字)。
+test("search keyboard: arrows move selection, Enter opens, Esc closes; no global shortcuts", async ({ browser }) => {
+  const page = await newPage(browser);
+  await saveAndWait(page, "keyboard alpha body");
+  await saveAndWait(page, "keyboard beta body"); // 新しい順: beta, alpha
+
+  await page.click("#search");
+  await expect(page.locator("#search-input")).toBeFocused();
+  await expect(page.locator("#search-results li button").first()).toHaveClass(/selected/); // 先頭選択
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("#search-results li button").nth(1)).toHaveClass(/selected/); // ↓ で次へ
+  await page.keyboard.press("ArrowUp");
+  await expect(page.locator("#search-results li button").first()).toHaveClass(/selected/);
+  await page.keyboard.press("Enter"); // ↑↓/Enter は Search 内でのみ.*動く
+  await expect(page.locator("#search-overlay")).toBeHidden();
+  await expect(page.locator("#read-name")).toContainText("keyboard beta");
+
+  // Esc で close。focus は SEARCH button へ戻る
+  await page.click("#search");
+  await page.focus("#search-input");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#search-overlay")).toBeHidden();
+
+  // global shortcut は無い: Composer focus 中の `/` も通常 text。Ctrl+K で検索も開かない
+  await page.click("#text");
+  await page.keyboard.type("slash / test");
+  await expect(page.locator("#search-overlay")).toBeHidden();
+  expect(await page.inputValue("#text")).toBe("slash / test");
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.locator("#search-overlay")).toBeHidden(); // Ctrl/Cmd+K は Search を開かない
+});
+
+// desktop layout: 長い本文で document が伸びない。pane 内 scroll。footer も viewport 内に維持。
+test("layout: long record scrolls inside pane, document height unchanged", async ({ browser }) => {
+  const page = await newPage(browser);
+  const text = `long record body\n${"padding line\n".repeat(500)}`;
+  await saveAndWait(page, text);
+  await selectAndWait(page, "long record");
+  await expect(page.locator("#read-text")).toBeVisible();
+
+  const m = await page.evaluate(() => {
+    const doc = document.documentElement;
+    const readText = document.querySelector("#read-text")!;
+    return {
+      noPageGrowth: doc.scrollHeight <= doc.clientHeight,
+      readScrollable: readText.scrollHeight > readText.clientHeight,
+      footerBottom: document.querySelector("footer")!.getBoundingClientRect().bottom,
+      innerHeight: window.innerHeight,
+    };
+  });
+  expect(m.noPageGrowth).toBe(true); // record 本文のため document 全体を scroll させない
+  expect(m.readScrollable).toBe(true); // record text は pane 内で scroll
+  expect(m.footerBottom).toBeLessThanOrEqual(m.innerHeight); // footer の骨格位置が保たれる
 });
 
 // Bug 5 regression: IndexedDB open 失敗が UI に見え、Save 等が disabled になり、
@@ -206,10 +297,10 @@ test("IndexedDB open failure: visible error, Save disabled, no fallback", async 
   await expect(page.locator("#copy")).toBeDisabled();
   await expect(page.locator("#delete")).toBeDisabled();
   await expect(page.locator("#export-txt")).toBeDisabled();
+  await expect(page.locator("#search")).toBeDisabled(); // data が読めないため Search も使えない
   // Save 処理へ進まない: textarea に入れても result は空のまま (fallback 保存も起こらない)
   await page.fill("#text", "must not be saved");
   await expect(page.locator("#result")).toHaveText("");
-  await expect(page.locator("#list li")).toHaveCount(0);
 });
 
 // production build での成功動線: save → list → select/read → copy → export single → export all → delete。
@@ -224,7 +315,6 @@ test("success path: save → list → select/read → copy → export single →
   await selectAndWait(page, "success path body");
   await expect(page.locator("#read-name")).toHaveText(name);
   expect(await readTextContent(page)).toBe(text);
-  await expect(page.locator("#list button.selected", { hasText: "success path body" })).toHaveCount(1);
 
   // copy: 選択中 record を改めて読み、clipboard へそのまま copy
   await page.click("#copy");
@@ -241,11 +331,11 @@ test("success path: save → list → select/read → copy → export single →
   expect(zip.suggestedFilename()).toBe("spool-export.zip");
   expect(await zip.path()).toBeTruthy();
 
-  // delete: confirm accept → 即削除 → list から消え、read area は閉じる
+  // delete: confirm accept → 即削除 → 件数 0、read area は閉じる
   dialogAction = "accept";
   await page.click("#delete");
   dialogAction = "dismiss";
-  await expect(page.locator("#list li")).toHaveCount(0);
+  await expect(page.locator("#record-count")).toHaveText("records: 0");
   await expect(page.locator("#read")).toBeHidden();
   await expect(page.locator("#copy")).toBeDisabled();
 });
@@ -273,7 +363,12 @@ test("read race: stale completion does not overwrite newer selection", async ({ 
   await saveAndWait(page, "read race slow A body");
   await saveAndWait(page, "read race fast B body");
 
-  await page.locator("#list button", { hasText: "read race slow" }).click(); // read A 開始 (成功 event は遅延)
+  // read A 開始 (成功 event は遅延) → Search を閉じて B を先に完了させる
+  await page.click("#search");
+  await page.fill("#search-input", "read race slow");
+  await page.locator("#search-results button", { hasText: "read race slow" }).first().click();
+  await page.focus("#search-input"); // Esc close は Search input focus 中
+  await page.keyboard.press("Escape"); // A の read 完了を待たず overlay を閉じる
   await selectAndWait(page, "read race fast"); // B を先に完了させる
   await expect(page.locator("#read-name")).toContainText("read race fast", { timeout: 2_000 });
   await page.waitForTimeout(800); // A の遅延 read 完了を待つ
@@ -330,11 +425,15 @@ test("delete race: old delete completion keeps newer selection", async ({ browse
   await page.waitForTimeout(800); // A の delete 完了を待つ
   dialogAction = "dismiss";
 
-  // A は list から消える (stale 完了後の refresh)。B の選択・read 表示は壊れない
-  await expect(page.locator("#list button", { hasText: "delete race slow" })).toHaveCount(0);
+  // A の delete 完了後も B の選択・read 表示は壊れない。record は定義から消えている
   await expect(page.locator("#read-name")).toHaveText(keepName);
   expect(await readTextContent(page)).toBe("delete race keep B body");
-  await expect(page.locator("#list button.selected", { hasText: "delete race keep" })).toHaveCount(1);
+  await expect(page.locator("#record-count")).toHaveText("records: 1");
+  await page.click("#search"); // A が消えたことを Search でも確認
+  await page.fill("#search-input", "delete race");
+  await expect(page.locator("#search-results button")).toHaveCount(1); // slow A は出ない
+  await expect(page.locator("#search-results button", { hasText: "delete race keep" })).toHaveCount(1);
+  await page.keyboard.press("Escape");
 });
 
 // CSP: production artifact を Cloudflare Pages と同じ _headers で配信し、console に violation が
@@ -395,7 +494,7 @@ test("CSP: _headers applied, no console violations on production artifact", asyn
     dialogAction = "accept";
     await page.click("#delete");
     dialogAction = "dismiss";
-    await expect(page.locator("#list li")).toHaveCount(0);
+    await expect(page.locator("#record-count")).toHaveText("records: 0");
 
     expect(errors).toEqual([]);
     expect(violations.filter((t) => t.includes("Content-Security-Policy"))).toEqual([]);

@@ -9,7 +9,7 @@
     <header id="app-header">
       <h1>spool</h1>
       <div id="header-commands">
-        <button id="search" type="button" disabled title="search: Phase 2">[ SEARCH ]</button>
+        <button id="search" type="button">[ SEARCH ]</button>
         <button id="paste-as-new" type="button">[ PASTE AS NEW ]</button>
       </div>
     </header>
@@ -21,31 +21,33 @@
         <p id="result"></p>
       </section>
       <section id="view">
-        <div id="record-area">
-          <h2>RECORD</h2>
-          <p id="empty-state">Select a record to view it here.</p>
-          <div id="read" hidden>
-            <div id="read-name"></div>
-            <pre id="read-text"></pre>
-          </div>
-          <div id="read-actions">
-            <button id="back" type="button">[ BACK TO COMPOSE ]</button>
-            <button id="copy" type="button" disabled>[ COPY ]</button>
-            <button id="export-txt" type="button" disabled>[ EXPORT ]</button>
-            <button id="delete" type="button" disabled>[ DELETE ]</button>
-          </div>
-          <p id="read-result"></p>
+        <h2>RECORD</h2>
+        <p id="empty-state">Select a record to view it here.</p>
+        <div id="read" hidden>
+          <div id="read-name"></div>
+          <pre id="read-text"></pre>
         </div>
-        <div id="recent">
-          <h2>RECENT</h2>
-          <ul id="list"></ul>
-          <p id="export-result"></p>
-          <p id="export-all-row"><button id="export-all" type="button">[ EXPORT ALL ]</button></p>
+        <div id="read-actions">
+          <button id="back" type="button">[ BACK TO COMPOSE ]</button>
+          <button id="copy" type="button" disabled>[ COPY ]</button>
+          <button id="export-txt" type="button" disabled>[ EXPORT ]</button>
+          <button id="delete" type="button" disabled>[ DELETE ]</button>
         </div>
+        <p id="read-result"></p>
       </section>
     </main>
+    <div id="search-overlay" hidden>
+      <div id="search-box" role="dialog" aria-label="Search records">
+        <div id="search-title">SEARCH RECORDS</div>
+        <input id="search-input" type="text" aria-label="Query records" placeholder="> " autocomplete="off" />
+        <ul id="search-results"></ul>
+        <div id="search-help">↑↓ select&#160;&#160;&#160;&#160;Enter open&#160;&#160;&#160;&#160;Esc close</div>
+      </div>
+    </div>
     <footer>
+      <button id="export-all" type="button">[ EXPORT ALL ]</button>
       <p id="record-count"></p>
+      <p id="export-result"></p>
       <p id="storage-state"></p>
       <p id="shell-state"></p>
     </footer>

@@ -19,9 +19,14 @@ body {
   color: var(--fg);
   background: var(--bg);
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
+}
+/* desktop app shell: viewport 内に収める。header/main/footer の位置は record の本文量で動かない。
+   record/Composer は pane 内 scroll。mobile (≤720px) では通常 overflow を維持する。 */
+@media (min-width: 721px) {
+  body { height: 100dvh; overflow: hidden; }
 }
 h1, h2 { font-size: 14px; font-weight: 700; margin: 0; text-transform: uppercase; }
 h2 { color: var(--muted); }
@@ -59,27 +64,27 @@ button:disabled { color: var(--muted); background: var(--pane); border-color: va
 
 main {
   flex: 1;
+  min-height: 0; /* grid child: 中身 (record 本文) で pane を押し広げない */
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); /* desktop 2-pane: Compose | View */
-  min-height: 0;
 }
-main > section { border-right: 1px solid var(--line); padding: 16px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+main > section { border-right: 1px solid var(--line); padding: 16px; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 main > section:last-child { border-right: none; }
 main h2 { border-bottom: 1px solid var(--line-soft); padding-bottom: 4px; margin: 0; }
-#record-area { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
 
-/* Composer: plain-text memo / Markdown draft に耐える大きさ */
+/* Composer: pane 内で scroll する。pane geometry を本文量で変えない */
 #text {
   width: 100%;
-  min-height: 60vh;
   flex: 1;
+  min-height: 0; /* flex child: 内容が pane を押し広げない。desktop は pane 内 scroll */
   font: inherit;
   color: var(--fg);
   background: var(--pane);
   border: 1px solid var(--line);
   border-radius: 0;
   padding: 8px;
-  resize: vertical;
+  resize: none;
+  overflow: auto;
 }
 #save { align-self: flex-start; }
 #result { color: var(--muted); white-space: pre-wrap; min-height: 1.5em; margin: 0; overflow-wrap: anywhere; }
@@ -93,7 +98,8 @@ main h2 { border-bottom: 1px solid var(--line-soft); padding-bottom: 4px; margin
   overflow-wrap: anywhere;
   margin: 0;
   font: inherit;
-  max-height: 60vh;
+  flex: 1;
+  min-height: 0; /* 長い本文は pane 内で scroll。document を押し広げない */
   overflow-y: auto;
   background: var(--pane);
   border: 1px solid var(--line-soft);
@@ -102,12 +108,55 @@ main h2 { border-bottom: 1px solid var(--line-soft); padding-bottom: 4px; margin
 #read-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 #read-result, #export-result { color: var(--muted); white-space: pre-wrap; min-height: 1.5em; margin: 0; overflow-wrap: anywhere; }
 
-/* Phase 1 transient recent list (Phase 2 Search で置き換え) */
-#recent { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
-#list { list-style: none; margin: 0; padding: 0; max-height: 12rem; overflow-y: auto; border-top: 1px solid var(--line-soft); }
-#list li button { all: unset; cursor: pointer; display: block; width: 100%; padding: 4px 8px; font: inherit; }
-#list li button:hover { background: #efefef; }
-#list li button.selected { background: var(--accent-bg); color: var(--accent-fg); }
+/* Search overlay (UI-DESIGN.md §4): dmenu-like finder。flat overlay、shadow/blur/animation なし */
+#search-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 16px;
+}
+#search-box {
+  width: min(720px, 100%);
+  background: var(--pane);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+#search-title { padding: 4px 8px; border-bottom: 1px solid var(--line-soft); color: var(--muted); }
+#search-input {
+  font: inherit;
+  color: var(--fg);
+  background: var(--pane);
+  border: none;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 8px;
+  outline: none;
+  width: 100%;
+}
+#search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+#search-results li button {
+  all: unset;
+  cursor: pointer;
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis; /* 長い filename は安全に truncate */
+}
+#search-results li button:hover { background: #efefef; }
+#search-results li button.selected { background: var(--accent-bg); color: var(--accent-fg); }
+#search-help { padding: 4px 8px; border-top: 1px solid var(--line-soft); color: var(--muted); }
 
 footer {
   display: flex;
@@ -120,15 +169,14 @@ footer {
 }
 footer p { margin: 0; color: var(--muted); }
 
-/* mobile: 2 列を横並びに潰さない。1 primary view at a time + RECENT navigation (UI-DESIGN.md §6)。
-   RECENT は Phase 1 transitional navigation: Composer view / Record view のどちらからも user が到達できる
-   (= Compose view の下に常設)。Phase 2 Search overlay で置き換える。 */
+/* mobile: 2 列を横並びに潰さない。1 primary view at a time (UI-DESIGN.md §6)。
+   retrieval は Search overlay。overlay は viewport 幅に追従する。 */
 #back { display: none; }
 @media (max-width: 720px) {
   main { grid-template-columns: minmax(0, 1fr); }
   #back { display: inline-block; }
-  body:not([data-view="record"]) #record-area { display: none; } /* default: Composer + RECENT */
-  body[data-view="record"] #compose { display: none; } /* record 選択時: Record view + RECENT + Back */
-  #read-text { max-height: 50vh; }
+  body:not([data-view="record"]) #view { display: none; } /* default: Composer (retrieval は Search) */
+  body[data-view="record"] #compose { display: none; } /* record 選択時: Record view + Back */
+  #text { min-height: 50vh; } /* mobile は document scroll を許す。Composer に最低限の高さを確保 */
   #paste-as-new { flex-grow: 1; } /* mobile でも primary を目立たせる */
 }

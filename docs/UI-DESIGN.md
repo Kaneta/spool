@@ -78,11 +78,12 @@ Search opens a temporary dmenu-like record finder.
 
 Activation:
 
-- `[ SEARCH ]`
-- `Ctrl+K` on Windows/Linux
-- `Cmd+K` on macOS
+- `[ SEARCH ]` button only
 
-Do not use `/` as a shortcut because `/` is valid Composer input.
+No global keyboard shortcuts (no Ctrl+K / Cmd+K / `/`):
+the Composer is an ordinary notepad and browser/OS shortcuts must not be taken
+over. Keyboard handling below applies only while the Search overlay input has
+focus.
 
 Inside Search:
 
@@ -138,11 +139,7 @@ The Composer should be large enough to work as a simple Web notepad.
 
 Do not reserve a permanent pane for the record list.
 
-Past records are retrieved through Search.
-
-Phase 1 transitional note: until Search exists, a compact recent list lives
-at the bottom of the right pane. It is a placeholder and will be replaced by
-the Search overlay in Phase 2. Do not invest further in it.
+Records are retrieved through Search (Phase 2).
 
 ---
 
@@ -155,17 +152,17 @@ Example:
     ┌─ SEARCH RECORDS ───────────────────────────────────────────────┐
     │ > 空調 設定                                                   │
     ├───────────────────────────────────────────────────────────────┤
-    │ 20260918-0932-空調設定変更.txt                                │
-    │ 明日の講義室について……                                       │
-    ├───────────────────────────────────────────────────────────────┤
+    │ 20260918-0932-空調設定変更.txt                               │
     │ 20260911-1540-東側空調.txt                                    │
-    │ 東側ラウンジは……                                             │
+    ├───────────────────────────────────────────────────────────────┤
+    │ ↑↓ select        Enter open        Esc close                  │
     └───────────────────────────────────────────────────────────────┘
-      ↑↓ select        Enter open        Esc close
 
-When the query is empty, show recent records.
+When the query is empty, show recent records in the existing chronological
+order. Each row shows the filename only; long names truncate with CSS.
 
 Selecting a record closes Search and opens that record in the right pane.
+Record-pane semantics, including stale-read guards, are unchanged.
 
 Search should feel closer to dmenu / command palette behavior than to a
 traditional search-results page.
@@ -182,6 +179,12 @@ For both query and record text:
 2. lowercase/case folding where applicable
 3. split query on whitespace
 4. every query token must occur as a substring
+
+The searchable text of a record is its filename plus its body:
+
+    record.name + "\n" + record.text
+
+so both filenames and record contents are searchable.
 
 Example:
 
@@ -239,18 +242,16 @@ beside it.
 
 Search remains an overlay.
 
-### Phase 1 transitional behavior
+### Mobile integration
 
-Until the Phase 2 Search overlay exists:
+- default view is the Composer
+- `[ SEARCH ]` stays reachable in the header
+- a Search result closes the overlay and moves to the Record view
+- `BACK TO COMPOSE` returns to the Composer
+- the overlay spans the viewport width on mobile; it is not a separate screen
 
-- mobile still shows one primary content view at a time
-- the Composer view carries a compact RECENT navigation list below it
-- selecting a RECENT item moves to the Record view
-- `BACK TO COMPOSE` returns to the Composer view with RECENT still reachable
-- PASTE AS NEW also enters the Record view directly
-
-RECENT is a navigation mechanism only, not a third pane. It is replaced by the
-Search overlay in Phase 2 and must not grow into a record browser.
+The Phase 1 RECENT list is removed; the Search overlay (empty query = recent
+records) is the single retrieval mechanism.
 
 ---
 

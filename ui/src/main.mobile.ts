@@ -3,13 +3,17 @@
 
 import { candidateName, capturedAtPrefix, deriveTitle, isNameWithinLimit } from "./filename";
 import { addRecord, deleteRecord, listRecords, openDatabase, readAllRecords, readRecord, type AddOutcome, type StoredRecord } from "./indexeddb";
+import { searchRecords } from "./search";
 import { downloadZip } from "client-zip"; // §5.4: STORE 専用・dependency なしの小さな zip library
 import "./mobile.css"; // CSP default-src 'self' で inline style を許可しないため外部 file に分離 (pc.css と同構成)
 
 const textarea = document.querySelector<HTMLTextAreaElement>("#text")!;
 const saveButton = document.querySelector<HTMLButtonElement>("#save")!;
 const result = document.querySelector<HTMLParagraphElement>("#result")!;
-const listElement = document.querySelector<HTMLUListElement>("#list")!;
+const searchButton = document.querySelector<HTMLButtonElement>("#search")!;
+const searchOverlay = document.querySelector<HTMLElement>("#search-overlay")!;
+const searchInput = document.querySelector<HTMLInputElement>("#search-input")!;
+const searchResults = document.querySelector<HTMLUListElement>("#search-results")!;
 const readArea = document.querySelector<HTMLElement>("#read")!;
 const emptyState = document.querySelector<HTMLElement>("#empty-state")!;
 const readName = document.querySelector<HTMLElement>("#read-name")!;
@@ -52,6 +56,7 @@ try {
 function setDisabled(disabled: boolean): void {
   saveButton.disabled = disabled;
   pasteAsNewButton.disabled = disabled;
+  searchButton.disabled = disabled;
   copyButton.disabled = disabled;
   deleteButton.disabled = disabled;
   exportTxtButton.disabled = disabled;
@@ -82,7 +87,16 @@ function setupStorageUi(database: IDBDatabase): void {
   exportAllButton.addEventListener("click", () => {
     void exportAllRecords();
   });
-  void refreshList(database); // reload 後は IndexedDB から一覧を再構築する
+  searchButton.addEventListener("click", () => {
+    void openSearch();
+  });
+  // key handling は Search input focus 中のみ。global keydown は登録しない
+  searchInput.addEventListener("input", () => {
+    searchIndex = 0; // query 変更で選択を先頭へ戻す
+    renderSearch();
+  });
+  searchInput.addEventListener("keydown", searchKeydown);
+  void refreshRecordCount(database); // reload 後の件数表示。retrieval は Search overlay が担う
   void requestPersistence(); // §5.5: 初回利用準備。eviction されにくくする要求であり保存成功条件ではない (Baseline §6)
   registerAppShell(); // §5.5: offline app shell。準備失敗は shell 機能のみに影響し保存と混ぜない
 }
@@ -112,7 +126,7 @@ async function commitNew(sourceText: string): Promise<string | null> {
       }
       if (outcome.kind === "committed") {
         showSaved(name, text);
-        await refreshList(db!); // tx complete → Saved 表示 → list refresh。失敗時は refresh しない
+        refreshRecordCount(db!); // tx complete → Saved 表示 → 件数更新。Search は open 時に再読みする
         return name;
       }
       if (outcome.kind === "conflict") continue; // 同じ時刻・同じ title のまま suffix を進める (§3.5)
@@ -166,32 +180,18 @@ function showFailed(cause: string, detail: string): void {
   result.textContent = `Failed: ${cause} (${detail})`; // textarea は保持する
 }
 
-async function refreshList(database: IDBDatabase): Promise<void> {
-  let names: string[];
-  try {
-    names = (await listRecords(database)).toReversed(); // name 降順 = 新しい record が上 (§4.3)
-  } catch (e) {
-    // 失敗時も前の list 表示は保持する (PC 側 refreshList と同じ)。state を破壊しない
-    storageState.textContent = `List failed: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`;
-    return;
-  }
-  const fragment = document.createDocumentFragment();
-  for (const name of names) {
-    const li = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = name; // plain text。innerHTML は使わない
-    button.addEventListener("click", () => {
-      void selectRecord(name);
+function refreshRecordCount(database: IDBDatabase): void {
+  // Phase 2: RECENT list 撤去。Search overlay が retrieval を担う。ここでは件数表示のみ。
+  void listRecords(database)
+    .then((names) => {
+      recordCount.textContent = `records: ${names.length}`;
+      // 復旧したら残っていた List failed 表示を消す。persistence 表示を壊さない
+      if (storageState.textContent.startsWith("List failed: ")) storageState.textContent = "";
+    })
+    .catch((e: unknown) => {
+      // 失敗時も前の件数表示は保持する (state を破壊しない)
+      storageState.textContent = `List failed: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`;
     });
-    li.append(button);
-    fragment.append(li);
-  }
-  listElement.replaceChildren(fragment);
-  recordCount.textContent = `records: ${names.length}`;
-  markSelected();
-  // 復旧したら残っていた List failed 表示を消す。persistence 表示 (storageState の通常 role) は壊さない
-  if (storageState.textContent.startsWith("List failed: ")) storageState.textContent = "";
 }
 
 async function selectRecord(name: string): Promise<void> {
@@ -220,14 +220,91 @@ async function selectRecord(name: string): Promise<void> {
     readText.textContent = record.text; // plain text 表示。HTML として解釈しない
     document.body.dataset.view = "record"; // mobile: record を選んだら record view へ
   }
-  markSelected();
   readResult.textContent = ""; // record を切り替えたら前の操作結果表示は消す
   updateActionButtons();
 }
 
-function markSelected(): void {
-  for (const button of listElement.querySelectorAll("button")) {
-    button.classList.toggle("selected", button.textContent === selectedName);
+// ===== Search overlay (UI-DESIGN.md §2/§4/§5)。dmenu-like finder。read-only retrieval UI。
+// global keyboard shortcut は一切登録しない (Ctrl/Cmd+K, `/`, Ctrl+F 等を奪わない)。
+// key handling は #search-input focus 中のみ。open 時に全件を 1 本の readonly getAll で読む
+// 薄い session cache (閉じたら破棄)。cache layer / search index は作らない。
+let searchOpen = false;
+let searchSession: StoredRecord[] = [];
+let searchIndex = 0;
+
+async function openSearch(): Promise<void> {
+  searchOpen = true;
+  searchOverlay.hidden = false;
+  searchInput.value = ""; // close で query は消える。次 open は empty query = recent records
+  searchIndex = 0;
+  searchInput.focus(); // open 時に autofocus
+  let records: StoredRecord[];
+  try {
+    records = (await readAllRecords(db!)).toReversed(); // getAll 1 request。key昇順 → 新しい順に反転
+  } catch (e) {
+    if (searchOpen) {
+      showFailed("search_read", e instanceof Error ? `${e.name}: ${e.message}` : String(e));
+      closeSearch();
+    }
+    return;
+  }
+  if (!searchOpen) return; // read 中に close された
+  searchSession = records;
+  renderSearch();
+}
+
+/** 現在の query で session cache を filter (既存 chronological 降順のまま)。ranking なし。filename のみ表示。 */
+function renderSearch(): void {
+  const matched = searchRecords(searchInput.value, searchSession);
+  if (searchIndex >= matched.length) searchIndex = Math.max(0, matched.length - 1);
+  const fragment = document.createDocumentFragment();
+  matched.forEach((record, i) => {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = record.name; // filename only。HTML として解釈しない
+    button.classList.toggle("selected", i === searchIndex); // reverse-video 選択行
+    button.addEventListener("click", () => {
+      void openFromSearch(record.name);
+    });
+    li.append(button);
+    fragment.append(li);
+  });
+  searchResults.replaceChildren(fragment);
+}
+
+function closeSearch(): void {
+  searchOpen = false;
+  searchOverlay.hidden = true;
+  searchSession = []; // 閉じたら session cache も破棄
+  searchButton.focus(); // SEARCH button へ focus を戻す
+}
+
+/** Search からの open: 既存 selectRecord (stale guard 含む) を使う。別の read pipeline は作らない。 */
+async function openFromSearch(name: string): Promise<void> {
+  await selectRecord(name);
+  closeSearch();
+}
+
+function searchKeydown(e: KeyboardEvent): void {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeSearch();
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault(); // Arrow は Search 内でのみ扱い、cursor 移動はさせない
+    const matched = searchRecords(searchInput.value, searchSession);
+    if (matched.length === 0) return;
+    searchIndex = e.key === "ArrowDown" ? Math.min(searchIndex + 1, matched.length - 1) : Math.max(searchIndex - 1, 0);
+    renderSearch();
+    return;
+  }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const matched = searchRecords(searchInput.value, searchSession);
+    if (searchIndex >= matched.length) return;
+    void openFromSearch(matched[searchIndex]!.name);
   }
 }
 
@@ -258,8 +335,8 @@ async function deleteSelected(): Promise<void> {
     showActionFailed("delete_failed", e instanceof Error ? `${e.name}: ${e.message}` : String(e)); // 一覧・選択表示は変更しない
     return;
   }
-  // 削除中に別 record を選んだ場合は新 selection を壊さない。list refresh は常に実行する (PC 側と同じ)。
-  await refreshList(db!);
+  // 削除中に別 record を選んだ場合は新 selection を壊さない。件数更新は常に実行する (PC 側と同じ)。
+  refreshRecordCount(db!);
   if (generation === deleteGeneration && selectedName === name) {
     // tx complete 後のみ: 選択 clear → read area clear
     selectedName = null;
