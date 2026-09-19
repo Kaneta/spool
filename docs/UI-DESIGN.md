@@ -154,14 +154,16 @@ There are two layout states:
 expressed on `body` as `data-rail="open"` / `data-rail="closed"`. There is no
 `focus` mode, no viewport width state in JS, and no ResizeObserver layout
 state. Responsive behavior is CSS media query only, with one mobile-only
-breakpoint (640px).
+breakpoint (560px).
 
 Desktop side-by-side windows are a canonical usage: one browser window with
 the Composer, one with the Markdown Preview. A half-screen desktop window
 must still show `rail | Composer` with the collapse control available, so
-the real-mobile breakpoint is placed at the geometry where rail + workspace
-actually breaks (measured: 641px keeps the rail with ~400px Composer and no
-horizontal overflow).
+the mobile breakpoint is placed where rail + workspace actually breaks
+(measured: 561px keeps the rail (~12.5rem) with ~330px Composer and no
+horizontal overflow). This keeps explicit rail collapse usable on
+OS-scaled desktop windows; responsive auto-layout never outruns the
+user's own collapse decision.
 
 ### Desktop normal layout
 
@@ -208,11 +210,11 @@ auto-collapsed because the viewport becomes narrower):
 ### Responsive
 
 - Desktop / tablet / split-window: the rail remains visible regardless of
-  width (1920, 1200, 960, down to 641). The Composer shrinks naturally; no
+  width (1920, 1200, 960, down to 561). The Composer shrinks naturally; no
   automatic top-bar conversion, no auto-collapse, no JS viewport handling.
   The rail collapse control stays available in narrow desktop windows; only
   the layout width changes.
-- Real mobile (640px and below): the existing simple stacked layout
+- Real mobile (560px and below): the existing simple stacked layout
   (rail contents as top bar, commands as command row) is reused. No drawer
   framework, no hamburger menu, no new navigation system.
 - Navigation across the breakpoint does not rewrite the rail state:
@@ -254,7 +256,7 @@ Example:
     └─────────────────────────────────────────────────────────────────┘
 
 While the overlay is open it is a temporary search workspace — not part of the
-normal `rail | Composer` layout. Desktop/tablet (>= 641px): results left,
+normal `rail | Composer` layout. Desktop/tablet (>= 561px): results left,
 read-only preview right. The overlay may widen on these viewports
 (viewport-relative, e.g. `min(90vw, ...)`); it never exceeds the viewport and
 closing it restores the normal geometry exactly. Mobile: the overlay stays

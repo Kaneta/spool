@@ -1050,11 +1050,12 @@ test("markdown preview: offline shell opens and renders via handshake", async ({
   await context.setOffline(false);
 });
 // ===== split-window desktop window (human acceptance): 狭 desktop でも rail | Composer と
-// collapse を使えること。breakpoint は 641px (real mobile 640px 未満のみ stacked)。
+// collapse を使えること。breakpoint は 561px (real mobile 560px 未満のみ stacked)。
 
 // 狭 desktop (700px = 1920 の半 window 相当): rail / toggle が残り、collapse と reopen が効く。
-// 641px ではまだ rail (最狭 desktop)、640px で mobile stacked に切り替わる (境界 ±1)。
-test("split window: rail layout and collapse at narrow desktop width, breakpoint at 641/640", async ({ browser }) => {
+// 561px ではまだ rail (最狭 desktop)、560px で mobile stacked に切り替わる (境界 ±1)。
+// scaled desktop 実機 (~960px window → CSS viewport ~640px) でも 640px は rail のまま。
+test("split window: rail layout and collapse at narrow desktop width, breakpoint at 561/560", async ({ browser }) => {
   const page = await newComposerPage(browser);
   await page.setViewportSize({ width: 700, height: 800 });
   expect(await railLayout(page)).toBe(true);
@@ -1067,13 +1068,24 @@ test("split window: rail layout and collapse at narrow desktop width, breakpoint
   await page.click("#rail-toggle"); // reopen works
   expect(await composerWidth(page)).toBe(openW);
 
-  // breakpoint 境界: 641 = rail, 640 = stacked (崩れる直前の geometry)
-  await page.setViewportSize({ width: 641, height: 800 });
+  // scaled split-window 相当: 640 / 620 / 600 / 580 でも rail | Composer を維持
+  for (const w of [640, 620, 600, 580]) {
+    await page.setViewportSize({ width: w, height: 800 });
+    expect(await railLayout(page), `width ${w}`).toBe(true);
+    await expect(page.locator("#rail-toggle"), `width ${w}`).toBeVisible();
+    expect(await composerWidth(page)).toBeGreaterThan(250); // Composer usable
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)).toBe(false);
+  }
+
+  // breakpoint 境界: 561 = rail (最狭 desktop), 560 = stacked (崩れる直前の geometry)
+  await page.setViewportSize({ width: 561, height: 800 });
   expect(await railLayout(page)).toBe(true);
   await expect(page.locator("#rail-toggle")).toBeVisible();
+  expect(await composerWidth(page)).toBeGreaterThan(280); // ≈329px 可用
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)).toBe(false);
-  await page.setViewportSize({ width: 640, height: 800 });
+  await page.setViewportSize({ width: 560, height: 800 });
   expect(await railLayout(page)).toBe(false); // stacked
+  await expect(page.locator("#rail-toggle")).toBeHidden(); // mobile では collapse control 不要
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)).toBe(false);
 });
 
@@ -1094,7 +1106,7 @@ test("resize: rail closed state survives resize and mobile transition, reload op
 
   await page.setViewportSize({ width: 700, height: 800 }); // desktop 範囲内で縮める
   expect(await page.evaluate(() => document.body.dataset.rail)).toBe("closed");
-  await page.setViewportSize({ width: 390, height: 800 }); // real mobile range
+  await page.setViewportSize({ width: 560, height: 800 }); // real mobile range
   expect(await page.evaluate(() => document.body.dataset.rail)).toBe("closed"); // 勝手に open へ戻さない
   await page.setViewportSize({ width: 1280, height: 800 }); // desktop へ戻る
   expect(await page.evaluate(() => document.body.dataset.rail)).toBe("closed");
