@@ -110,89 +110,79 @@ record view described in §3.
 
 ## 3. Normal layout
 
-Layout state is:
+There are two layout states:
 
-    normal | focus
+    rail open | rail closed
 
-There is no rail open/close state, no third layout mode, and no viewport
-width state in JS. Responsive behavior is CSS media query only, with one
-breakpoint.
+expressed on `body` as `data-rail="open"` / `data-rail="closed"`. There is no
+`focus` mode, no viewport width state in JS, and no ResizeObserver layout
+state. Responsive behavior is CSS media query only, with one mobile-only
+breakpoint (~720px).
 
-### Wide normal layout
+### Desktop normal layout
 
-At wide viewports the surplus horizontal space around the Composer is used
-for two UI rails:
+    ┌────────────────┬──────────────────────────────────────────────┐
+    │ SPOOL       [◀]│ COMPOSE                                      │
+    │                │                                              │
+    │ records: N     │ textarea                                     │
+    │ storage: ...   │                                              │
+    │ shell: ...     │                                              │
+    │                │                                              │
+    │ SEARCH         │                                              │
+    │ PASTE AS NEW   │                                              │
+    │ EXPORT ALL     │ [ SAVE ]                                     │
+    └────────────────┴──────────────────────────────────────────────┘
 
-    ┌──────────────────┬──────────────────────────────────┬──────────────────┐
-    │ spool            │ COMPOSE                          │ SEARCH           │
-    │ records: 123     │                          [ ⛶ ]   │ PASTE AS NEW     │
-    │ storage: ...     │ ┌──────────────────────────────┐ │ EXPORT ALL       │
-    │                  │ │ textarea                     │ │                  │
-    │                  │ └──────────────────────────────┘ │                  │
-    │                  │ [ SAVE ]                         │                  │
-    └──────────────────┴──────────────────────────────────┴──────────────────┘
+- Left rail contains identity (`SPOOL`), status (record count, storage /
+  shell), the commands `SEARCH`, `PASTE AS NEW` (primary), `EXPORT ALL`,
+  export result, and the rail collapse control.
+- There is no right rail, no top header, and no permanent footer.
+- The Composer workspace is a flexible editor work area: `flex: 1;
+  min-width: 0`. `max-width: 52rem` is NOT applied to the Composer; it uses
+  the available workspace width. The Composer is a general text editor
+  (memos, pastes, logs, Markdown source), not an A4 reading column.
+- Composer and rail tops align; no extra header/footer height.
+- The textarea uses the available height; long text scrolls inside the
+  textarea (document does not grow with Composer content).
+- `PASTE AS NEW` remains visually primary (reverse-video style).
 
-- Left rail: spool title, record count, storage / app-shell state.
-- Right rail: commands — `SEARCH`, `PASTE AS NEW` (primary), `EXPORT ALL`.
-- The central Composer column has `max-width: ~52rem`. Even at 1920px the
-  textarea is not stretched to full width; line width stays stable.
-- `PASTE AS NEW` remains visually primary.
-- Status is carried by the rails; the header is not stacked on top of the
-  Composer (the Composer first line is not pushed down unnecessarily).
+### Rail collapse
 
-The breakpoint is a single value (implemented at 1281px): at or above is
-wide, below is narrow. No multi-step breakpoints.
+The rail can be collapsed by the user (explicit action only; never
+auto-collapsed because the viewport becomes narrower):
 
-### Narrow normal layout
+- rail open: collapse control (chevron-left, inline SVG,
+  `aria-label: Collapse controls`) at the top of the rail.
+- rail closed: the rail shrinks to a minimal strip (~2rem) that keeps only
+  the reopen control (chevron-right, `aria-label: Expand controls`). The
+  rail is never removed from the DOM; the reopen handle cannot be lost.
+- Rail width is a narrow stable width (~12–14rem open).
+- Width/wrapping of the Composer changes between open/closed on purpose:
+  closing the rail widens the workspace. State is not persisted; reload
+  starts open.
 
-Below the breakpoint the rails are not squeezed: the left rail contents
-become a top bar and the right rail contents become a command row:
+### Responsive
 
-    ┌──────────────────────────────────────────────┐
-    │ spool  records: N  storage: ...              │
-    ├──────────────────────────────────────────────┤
-    │ COMPOSE                              [ ⛶ ]  │
-    │ textarea                                     │
-    │ [ SAVE ]                                     │
-    └──────────────────────────────────────────────┘
-    │ [ SEARCH ] [ PASTE AS NEW ] [ EXPORT ALL ]   │
-
-The Composer keeps its max-width and shrinks naturally within the available
-width on mobile.
+- Desktop / tablet: the rail remains visible regardless of width
+  (1920, 1200, 960). The Composer shrinks naturally; no automatic top-bar
+  conversion, no auto-collapse, no JS viewport handling.
+- Actual mobile (~720px and below): the existing simple stacked layout
+  (rail contents as top bar, commands as command row) is reused. No drawer
+  framework, no hamburger menu, no new navigation system. Mobile does not
+  need to share the desktop rail collapse state.
 
 ### Record view (transitional)
 
 There is no permanent Saved Record Preview pane. When a record is opened
 (Search result click, Paste as New), the existing record view replaces the
-Composer view; `BACK TO COMPOSE` returns to the Composer. This is the
-Phase 3 transitional behavior; no permanent record pane is reintroduced.
-
-### Focus mode
-
-Focus state is `normal | focus` only, expressed on `body`. No URL state, no
-persistence; reload starts in normal. The Browser Fullscreen API is not
-used.
-
-- Normal mode: a small fullscreen-style Focus button (inline SVG, not a
-  text button, no icon library) sits at the top-right of the Composer text
-  area, belonging to the text area like a chat code-block copy button.
-  `aria-label: Enter focus mode`.
-- Focus mode: rails, top bar, status / commands, Search and Record view UI
-  are hidden. Only the same-width Composer (+ SAVE) remains centered.
-  Focus removes peripheral UI; it never widens the prose.
-- Exit: a `×` fixed at the top-right of the viewport (not the Composer
-  corner), `aria-label: Exit focus mode`. The Normal Focus icon and the
-  Focus × never share position or shape: Normal → Focus is a local action
-  belonging to the text area; Focus → Normal is a global action ending the
-  screen state. This asymmetry is canonical.
-- Save remains usable in focus; draft, scroll position and caret are
-  preserved (the textarea DOM is never rebuilt for a mode change).
+Composer view; `BACK TO COMPOSE` returns to the Composer. No permanent
+record pane, no routes, no new tabs, no Search arrow preview.
 
 ### Principle
 
-Wide screen: use surplus horizontal space for controls.
-Narrow screen: move controls above/around content.
-Focus: remove peripheral UI, do not widen prose.
+Desktop/tablet: control rail | flexible Composer workspace.
+Mobile: simple stacked layout.
+Concentration = close the rail.
 ---
 
 ## 4. Search overlay
@@ -287,8 +277,9 @@ These may be reconsidered only if simple substring search proves insufficient.
 
 ## 6. Mobile layout
 
-Mobile is the narrow layout of §3: top bar + one-column Composer + command
-row, not a miniature desktop layout. Use one main view at a time.
+Mobile reuses the simple stacked layout of §3 (rail contents as a top bar,
+commands as a command row), not a miniature desktop layout. Use one main
+view at a time.
 
 Search remains an overlay.
 
@@ -299,8 +290,8 @@ Search remains an overlay.
 - a Search result closes the overlay and moves to the Record view
 - `BACK TO COMPOSE` returns to the Composer
 - the overlay spans the viewport width on mobile; it is not a separate screen
-- Focus mode works on mobile: Focus button in the Composer corner, `×` at
-  the viewport top-right, peripheral UI hidden, same Composer width
+- rail collapse is irrelevant on mobile: the stacked layout already is the
+  minimal layout; the desktop `data-rail` state does not need to apply
 
 The Phase 1 RECENT list is removed; the Search overlay (empty query = recent
 records) is the single retrieval mechanism.

@@ -1,7 +1,7 @@
 /* mobile.css — Spool Web UI (UI-DESIGN.md: TUI-inspired / wireframe-tool aesthetic)。
    plain CSS, 依存なし。1px border / radius 0 / shadows・gradients なし / spacing 4-8-16-24。
-   Layout model: normal | focus (body[data-mode]) + wide | narrow (CSS media query のみ)。
-   wide (>=1281px): left rail | centered Composer (max ~52rem) | right rail。JS は viewport を判定しない。 */
+   Layout model: rail open | rail closed (body[data-rail]) + mobile-only breakpoint (~720px)。
+   desktop/tablet: left control rail (12.5rem) | flexible Composer workspace (flex, 52rem cap なし)。 */
 :root {
   --fg: #1a1a1a;
   --bg: #f6f6f6;
@@ -15,7 +15,6 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 h1, h2 { font-size: 14px; font-weight: 700; margin: 0; text-transform: uppercase; }
-#left-rail h1 { color: var(--fg); }
 
 body {
   font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
@@ -25,7 +24,7 @@ body {
   background: var(--bg);
   margin: 0;
   min-height: 100dvh;
-  display: flex; /* narrow 既定: top bar → main → command row の縦積み */
+  display: flex; /* mobile 既定: top bar → main → command row の縦積み */
   flex-direction: column;
 }
 
@@ -41,16 +40,13 @@ button {
 }
 button:hover:not(:disabled) { background: #efefef; }
 button:disabled { color: var(--muted); background: var(--pane); border-color: var(--line-soft); cursor: default; }
-#right-rail button { color: var(--muted); }
-/* PASTE AS NEW は reverse-video 風の反転で primary (accent は彩度を持たせない)。
-   rail の muted 指定 (#right-rail button) が specificity で勝つためここで上書きして戻す */
-#right-rail #paste-as-new { color: var(--accent-fg); }
-#paste-as-new { background: var(--accent-bg); border-color: var(--accent-bg); font-weight: 700; }
+/* PASTE AS NEW は reverse-video 風の反転で primary */
+#paste-as-new { background: var(--accent-bg); border-color: var(--accent-bg); color: var(--accent-fg); font-weight: 700; }
 #paste-as-new:hover:not(:disabled) { background: #3a3a3a; }
 #delete:not(:disabled):hover { background: #fbe9e7; }
 #save { font-weight: 700; }
 
-/* ===== rail containers ===== */
+/* ===== rail: identity / status / commands / collapse control ===== */
 #left-rail {
   display: flex;
   flex-wrap: wrap;
@@ -60,23 +56,27 @@ button:disabled { color: var(--muted); background: var(--pane); border-color: va
   background: var(--pane);
 }
 #left-rail p { margin: 0; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
-#right-rail {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: var(--pane);
-}
-#right-rail p { margin: 0; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 
-/* ===== main: One Column Composer ===== */
+/* rail toggle: 静かな小 control。rail head のみに置く (floating button にしない) */
+#rail-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  color: var(--muted);
+  background: var(--pane);
+  border: 1px solid var(--line-soft);
+}
+#rail-toggle:hover, #rail-toggle:focus-visible { color: var(--fg); background: #efefef; }
+#rail-toggle svg { display: block; }
+#rail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+
+/* ===== main: flexible Composer workspace ===== */
 main {
   flex: 1;
   min-height: 0; /* 中身 (record 本文) で shell を押し広げない */
+  min-width: 0;
   width: 100%;
-  max-width: 52rem; /* narrow でも読みやすい行幅のまま中央に据える */
-  margin-inline: auto;
   padding: 0 16px;
   display: grid; /* 1 正列: compose / view は data-view で排他的に切替 */
   grid-template-columns: minmax(0, 1fr);
@@ -84,9 +84,8 @@ main {
 main > section { padding: 16px 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 main h2 { border-bottom: 1px solid var(--line-soft); padding-bottom: 4px; margin: 0; color: var(--muted); }
 
-/* Composer: 本文は pane 内 scroll。pane geometry を本文量で変えない */
+/* Composer: 本文は pane 内 scroll。52rem cap なし = editor work area (UI-DESIGN.md §3) */
 #composer {
-  position: relative; /* Focus icon は本文エリアに属する (ChatGPT copy button 相当の局所 control) */
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -105,43 +104,11 @@ main h2 { border-bottom: 1px solid var(--line-soft); padding-bottom: 4px; margin
   resize: none;
   overflow: auto;
 }
-#focus {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  color: var(--muted); /* quiet。本文操作に所属する小さな control */
-  background: var(--pane);
-  border: 1px solid var(--line);
-  cursor: pointer;
-}
-#focus:hover, #focus:focus-visible { color: var(--fg); background: #efefef; }
-#focus svg { display: block; }
-/* Focus exit ×: viewport 右上 fixed。Composer 右上の Focus icon とは位置も icon も別 (canonical 非対称) */
-#exit-focus {
-  position: fixed;
-  top: 8px;
-  right: 8px;
-  z-index: 60;
-  align-items: center;
-  justify-content: center;
-  padding: 6px;
-  color: var(--muted);
-  background: var(--pane);
-  border: 1px solid var(--line);
-}
-#exit-focus:hover, #exit-focus:focus-visible { color: var(--fg); background: #efefef; }
-#exit-focus svg { display: block; }
-body:not([data-mode="focus"]) #exit-focus { display: none; }
-body[data-mode="focus"] #exit-focus { display: inline-flex; }
 #save { align-self: flex-start; }
 #result { color: var(--muted); white-space: pre-wrap; min-height: 1.5em; margin: 0; overflow-wrap: anywhere; }
 
-/* record view: Composer と 1 正位 (UI-DESIGN.md Normal layout)。record 表示は read-only (§10)。
-   permanent record pane は廃止済み。record open 時は既存 data-view swap で Composer を置換する。 */
+/* record view: Composer と 1 正位 (UI-DESIGN.md §3)。record 表示は read-only。
+   record open 時は既存 data-view swap で Composer を置換する。 */
 #empty-state { color: var(--muted); margin: 0; padding: 24px 0; }
 #read { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 #read-name { font-weight: 700; overflow-wrap: anywhere; padding: 4px 0; border-bottom: 1px solid var(--line); }
@@ -160,18 +127,11 @@ body[data-mode="focus"] #exit-focus { display: inline-flex; }
 #read-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 #read-result { color: var(--muted); white-space: pre-wrap; min-height: 1.5em; margin: 0; overflow-wrap: anywhere; }
 
-/* record-view swap (既存 mobile 行為を全幅に): body[data-view] は compose | record */
+/* record-view swap (既存行為): body[data-view] は compose | record */
 #back { display: none; }
 body:not([data-view="record"]) #view { display: none; } /* default: Composer (retrieval は Search) */
 body[data-view="record"] #compose { display: none; } /* record 選択時: Record view + Back */
 body[data-view="record"] #back { display: inline-block; }
-
-/* ===== Focus mode (UI-DESIGN.md Focus mode): body[data-mode="focus"] =====
-   周辺 UI を消すだけ。Composer 幅は normal と同じ。Fullscreen API 不使用。
-   focus 中は record view も消え、Composer になり data-view state は壊さないので exit で復帰する。 */
-body[data-mode="focus"] #left-rail,
-body[data-mode="focus"] #right-rail { display: none !important; }
-body[data-mode="focus"] #focus { display: none; } /* focus 中の exit は viewport 右上の × が担う */
 
 /* ===== Search overlay (UI-DESIGN.md §4): dmenu-like finder。flat overlay、shadow/blur/animation なし ===== */
 #search-overlay {
@@ -244,39 +204,58 @@ body[data-mode="focus"] #focus { display: none; } /* focus 中の exit は viewp
 /* keyboard focus 可視性: all:unset で消えないよう aesthetic 内で確保 */
 #search-box button:focus-visible { outline: 1px solid var(--fg); outline-offset: -4px; }
 
-/* ===== wide layout: surplus 水平余白を rail として使う (UI-DESIGN.md Normal layout) =====
-   breakpoint 1 本のみ。中央 column は 52rem を超えない。Grid は DOM 順 (left | main | right) で配置。 */
-@media (min-width: 1281px) {
+/* ===== desktop/tablet shell: rail | flexible workspace =====
+   viewport 幅によらず rail を維持する (auto-collapse / top bar 変換はしない)。
+   幅は 12.5rem (SPOOL / SEARCH / PASTE AS NEW / status が入る合理的な最小幅)。 */
+@media (min-width: 721px) {
   body { height: 100dvh; overflow: hidden; } /* desktop app shell: viewport 内に収める */
-  body:not([data-mode="focus"]) {
+  body[data-rail] {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 52rem) minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
   }
   #left-rail {
     flex-direction: column;
+    flex-wrap: nowrap; /* 縦 1 列固定。高さ超過は overflow-y scroll で処理し、横第2 column を作らない */
     align-items: flex-start;
     gap: 8px;
     border-right: 1px solid var(--line);
     padding: 16px;
+    width: 12.5rem;
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
   }
-  main { grid-column: 2; padding: 16px; }
-  #right-rail {
-    flex-direction: column;
-    align-items: flex-start;
-    border-left: 1px solid var(--line);
-    padding: 16px;
-  }
-}
-/* narrow (<=1280px): top bar + 積み上げ Composer。document 流しで必要分だけ scroll する */
-@media (max-width: 1280px) {
-  body:not([data-mode="focus"]) #text { min-height: 50vh; } /* viewport 相対。pane 高を px 固定で作らない */
+  #rail-head { width: 100%; }
+  main { padding: 16px; }
 }
 
-/* mobile: 積み上げの継続。1 primary view at a time (UI-DESIGN.md §7)。
-   retrieval は Search overlay。overlay は viewport 幅に追従する。 */
+/* ===== rail closed: minimal reopen handle =====
+   rail を DOM から消さず、幅を縮めて toggle だけ残す。main は flex/grid の残り全幅。 */
+@media (min-width: 721px) {
+  body[data-rail="closed"] #left-rail {
+    width: 2.25rem;
+    padding: 8px 4px;
+    gap: 4px;
+    align-items: center;
+  }
+  body[data-rail="closed"] #rail-head { justify-content: center; }
+  body[data-rail="closed"] #app-title,
+  body[data-rail="closed"] #left-rail p,
+  body[data-rail="closed"] #left-rail button { display: none; }
+  body[data-rail="closed"] #rail-head #rail-toggle { display: inline-flex; }
+}
+
+/* mobile: 本当に狭い viewport でのみ積み上げ (§3 Responsive)。desktop の変更は最小限。 */
 @media (max-width: 720px) {
+  /* rail は 2 列 grid を解除して top bar に戻る。p は横に流す */
+  #left-rail {
+    flex-direction: row;
+  }
+  #rail-head { width: auto; margin-right: auto; }
   #paste-as-new { flex-grow: 1; } /* mobile でも primary を目立たせる */
+  body[data-rail] #left-rail button:not(#rail-toggle) { display: inline-block; } /* closed を mobile に持ち込まない */
+  body[data-rail="closed"] #app-title,
+  body[data-rail="closed"] #left-rail p { display: initial; }
+  #rail-toggle { display: none; } /* mobile: すでに最小 layout のため collapse control は不要 */
+  main { padding: 0 16px; }
 }
