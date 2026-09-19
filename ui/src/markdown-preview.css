@@ -1,4 +1,5 @@
 /* markdown-preview.css — Markdown Preview page style (UI-DESIGN.md §12)。
+   content-only document surface: page 内 chrome (header / status bar) は置かない。
    record.css 同様の TUI-inspired 見た目 (1px border / radius 0 / shadow・gradient なし)。
    52rem の読書 column はこの Preview page だけの幅責務 (Composer には reserve しない)。 */
 :root { --fg: #1a1a1a; --muted: #767676; --pane: #fafafa; --line: #c9c9c9; --line-soft: #e2e2e2; }
@@ -14,11 +15,16 @@ body {
   min-height: 100%;
   padding: 24px 16px;
 }
-#preview-title { margin: 0; padding: 4px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 14px; font-weight: 700; text-transform: uppercase; }
-#preview-state { color: var(--muted); margin: 24px 0 0; }
+/* state message (session missing / unavailable / Nothing to preview.) は content 位置にのみ現れる。
+   常設 bar は作らない: rendered content と同じ余白・reading column 内に小さく出す。 */
+#preview-state {
+  max-width: 52rem;
+  margin: 0 auto;
+  color: var(--muted);
+}
 #preview-body {
   max-width: 52rem;
-  margin: 24px auto 0;
+  margin: 0 auto;
   overflow-wrap: anywhere;
 }
 #preview-body h1, #preview-body h2, #preview-body h3,

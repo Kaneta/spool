@@ -1,6 +1,6 @@
 /* mobile.css — Spool Web UI (UI-DESIGN.md: TUI-inspired / wireframe-tool aesthetic)。
    plain CSS, 依存なし。1px border / radius 0 / shadows・gradients なし / spacing 4-8-16-24。
-   Layout model: rail open | rail closed (body[data-rail]) + mobile-only breakpoint (~720px)。
+   Layout model: rail open | rail closed (body[data-rail]) + mobile-only breakpoint (~640px)。
    desktop/tablet: left control rail (12.5rem) | flexible Composer workspace (flex, 52rem cap なし)。 */
 :root {
   --fg: #1a1a1a;
@@ -167,7 +167,7 @@ body[data-view="record"] #back { display: inline-block; }
 }
 #search-row #search-clear, #search-help button { min-height: 32px; }
 /* Search overlay 中の temporary 2-pane workspace (desktop/tablet のみ §4)。
-   mobile (<=720px) は既存の single-column results に戻るため、preview はここでは配置しない。 */
+   desktop (>=641px) のみ preview を配置する (mobile は single-column results に戻る)。 */
 #search-body { display: flex; flex-direction: column; min-height: 0; }
 #search-preview { display: none; } /* 既定 (mobile): preview pane なし */
 #search-results {
@@ -208,10 +208,13 @@ body[data-view="record"] #back { display: inline-block; }
 /* keyboard focus 可視性: all:unset で消えないよう aesthetic 内で確保 */
 #search-box button:focus-visible { outline: 1px solid var(--fg); outline-offset: -4px; }
 
-/* ===== desktop/tablet shell: rail | flexible workspace =====
+/* ===== desktop/tablet shell (desktop split-window 含む): rail | flexible workspace =====
    viewport 幅によらず rail を維持する (auto-collapse / top bar 変換はしない)。
-   幅は 12.5rem (SPOOL / SEARCH / PASTE AS NEW / status が入る合理的な最小幅)。 */
-@media (min-width: 721px) {
+   幅は 12.5rem (SPOOL / SEARCH / PASTE AS NEW / status が入る合理的な最小幅)。
+   breakpoint 641px: desktop half-window (1920 の半分 ≈ CSS innerWidth 640–960, OS 125-150% scaling
+   込み) で rail | Composer を維持するため (UI-DESIGN.md §3)。実測: 641px で Composer ≈400px
+   可用 / 横 overflow なし。それ未満は real mobile。 */
+@media (min-width: 641px) {
   body { height: 100dvh; overflow: hidden; } /* desktop app shell: viewport 内に収める */
   body[data-rail] {
     display: grid;
@@ -268,7 +271,7 @@ body[data-view="record"] #back { display: inline-block; }
 
 /* ===== rail closed: minimal reopen handle =====
    rail を DOM から消さず、幅を縮めて toggle だけ残す。main は flex/grid の残り全幅。 */
-@media (min-width: 721px) {
+@media (min-width: 641px) {
   body[data-rail="closed"] #left-rail {
     width: 2.25rem;
     padding: 8px 4px;
@@ -282,8 +285,8 @@ body[data-view="record"] #back { display: inline-block; }
   body[data-rail="closed"] #rail-head #rail-toggle { display: inline-flex; }
 }
 
-/* mobile: 本当に狭い viewport でのみ積み上げ (§3 Responsive)。desktop の変更は最小限。 */
-@media (max-width: 720px) {
+/* mobile: 640px 以下の real mobile viewport でのみ積み上げ (§3 Responsive)。desktop の変更は最小限。 */
+@media (max-width: 640px) {
   /* rail は 2 列 grid を解除して top bar に戻る。p は横に流す */
   #left-rail {
     flex-direction: row;

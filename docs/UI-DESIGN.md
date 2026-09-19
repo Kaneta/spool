@@ -106,7 +106,10 @@ There is no permanent preview pane in the normal layout.
 dedicated same-origin Markdown Preview page
 (`/markdown-preview.html?session=<session-id>`) in a separate browser tab.
 It renders the CURRENT Composer text as read-only Markdown — it is not a
-Saved Record view and adds no storage behavior or editing. The Composer stays
+Saved Record view and adds no storage behavior or editing. The page is a
+content-only document surface: no in-page `MARKDOWN PREVIEW` header or other
+page chrome (the browser tab title carries the identity); state and error
+messages appear small at the natural content position only when they occur. The Composer stays
 a mutable plain-text / Markdown source editor; the Preview is a derived
 read-only rendering of the current Composer text only. There is no inline or
 permanent preview pane in the Composer (no split editor, no third column).
@@ -151,7 +154,14 @@ There are two layout states:
 expressed on `body` as `data-rail="open"` / `data-rail="closed"`. There is no
 `focus` mode, no viewport width state in JS, and no ResizeObserver layout
 state. Responsive behavior is CSS media query only, with one mobile-only
-breakpoint (~720px).
+breakpoint (640px).
+
+Desktop side-by-side windows are a canonical usage: one browser window with
+the Composer, one with the Markdown Preview. A half-screen desktop window
+must still show `rail | Composer` with the collapse control available, so
+the real-mobile breakpoint is placed at the geometry where rail + workspace
+actually breaks (measured: 641px keeps the rail with ~400px Composer and no
+horizontal overflow).
 
 ### Desktop normal layout
 
@@ -197,13 +207,20 @@ auto-collapsed because the viewport becomes narrower):
 
 ### Responsive
 
-- Desktop / tablet: the rail remains visible regardless of width
-  (1920, 1200, 960). The Composer shrinks naturally; no automatic top-bar
-  conversion, no auto-collapse, no JS viewport handling.
-- Actual mobile (~720px and below): the existing simple stacked layout
+- Desktop / tablet / split-window: the rail remains visible regardless of
+  width (1920, 1200, 960, down to 641). The Composer shrinks naturally; no
+  automatic top-bar conversion, no auto-collapse, no JS viewport handling.
+  The rail collapse control stays available in narrow desktop windows; only
+  the layout width changes.
+- Real mobile (640px and below): the existing simple stacked layout
   (rail contents as top bar, commands as command row) is reused. No drawer
-  framework, no hamburger menu, no new navigation system. Mobile does not
-  need to share the desktop rail collapse state.
+  framework, no hamburger menu, no new navigation system.
+- Navigation across the breakpoint does not rewrite the rail state:
+  `rail open | closed` is user state, so closed stays closed when resizing
+  960 → 700 → 390 (stacked) → 960. Mobile does not need to share the
+  desktop rail collapse visual (the toggle is hidden there), but the
+  internal `data-rail` value is preserved. Only reload resets to open; the
+  state is not persisted (no localStorage).
 
 ### Record view (transitional)
 
@@ -237,7 +254,7 @@ Example:
     └─────────────────────────────────────────────────────────────────┘
 
 While the overlay is open it is a temporary search workspace — not part of the
-normal `rail | Composer` layout. Desktop/tablet (>= ~721px): results left,
+normal `rail | Composer` layout. Desktop/tablet (>= 641px): results left,
 read-only preview right. The overlay may widen on these viewports
 (viewport-relative, e.g. `min(90vw, ...)`); it never exceeds the viewport and
 closing it restores the normal geometry exactly. Mobile: the overlay stays

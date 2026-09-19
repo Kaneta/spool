@@ -5,11 +5,8 @@
 import "./markdown-preview.css"; // CSP default-src 'self' のため外部 file (record.css と同構成)
 import { renderMarkdown } from "./markdown-render";
 
-const titleEl = document.querySelector<HTMLElement>("#preview-title")!;
 const bodyEl = document.querySelector<HTMLElement>("#preview-body")!;
 const stateEl = document.querySelector<HTMLParagraphElement>("#preview-state")!;
-
-titleEl.textContent = "MARKDOWN PREVIEW";
 
 // window name 再利用のため opener 付きで開かれるが、primary は Composer open 直後に切断する
 // (preview-link.ts)。この module load 時の null 化は defensive fallback (composer 側が

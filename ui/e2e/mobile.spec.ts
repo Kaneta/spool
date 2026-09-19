@@ -871,10 +871,17 @@ test("markdown preview: OPEN PREVIEW renders current source in a separate tab, c
   const url = new URL(popup.url());
   expect(url.pathname).toBe("/markdown-preview.html");
   expect(url.searchParams.get("session")).toBeTruthy();
-  await expect(popup.locator("#preview-title")).toHaveText("MARKDOWN PREVIEW");
+  // content-only surface: page 内 chrome (MARKDOWN PREVIEW header / divider) は置かない。
+  // browser tab title のみが区分を担う。
+  expect(await popup.evaluate(() => document.querySelector("#preview-title"))).toBeNull();
+  expect(await popup.locator("#preview-state").textContent()).toBe(""); // state message は発生時のみ
   await expect(popup.locator("#preview-body h1")).toHaveText("Hello");
   await expect(popup.locator("#preview-body strong")).toHaveText("world");
   expect(await page.inputValue("#text")).toBe("# Hello\n\n**world**\n"); // Composer unchanged
+  // 52rem reading column は維持 (chrome 削除と独立)
+  const bodyWidth = await popup.evaluate(() => document.querySelector("#preview-body")!.getBoundingClientRect().width);
+  expect(bodyWidth).toBeGreaterThan(400);
+  expect(bodyWidth).toBeLessThanOrEqual(52 * 16 + 1);
 });
 
 // 長い code line: code block 内部 scroll で吸収され、page 全体に横 scroll が出ない (§18)。
@@ -1037,7 +1044,64 @@ test("markdown preview: offline shell opens and renders via handshake", async ({
   await page.fill("#text", "# Offline preview");
   await context.setOffline(true); // preview を一度も online 開かずに offline open (install 時の資産先取りが効く)
   const popup = await openPreview(page);
-  await expect(popup.locator("#preview-title")).toHaveText("MARKDOWN PREVIEW"); // Composer shell へ誤 fallback していない
+  // Composer shell へ誤 fallback していない: preview page は state 要素で区別する (in-page header なし)
+  expect(await popup.evaluate(() => document.querySelector("#preview-body") !== null)).toBe(true);
   await expect(popup.locator("#preview-body h1")).toHaveText("Offline preview");
   await context.setOffline(false);
+});
+// ===== split-window desktop window (human acceptance): 狭 desktop でも rail | Composer と
+// collapse を使えること。breakpoint は 641px (real mobile 640px 未満のみ stacked)。
+
+// 狭 desktop (700px = 1920 の半 window 相当): rail / toggle が残り、collapse と reopen が効く。
+// 641px ではまだ rail (最狭 desktop)、640px で mobile stacked に切り替わる (境界 ±1)。
+test("split window: rail layout and collapse at narrow desktop width, breakpoint at 641/640", async ({ browser }) => {
+  const page = await newComposerPage(browser);
+  await page.setViewportSize({ width: 700, height: 800 });
+  expect(await railLayout(page)).toBe(true);
+  await expect(page.locator("#rail-toggle")).toBeVisible();
+  const openW = await composerWidth(page);
+  await page.click("#rail-toggle"); // closed: reopen strip (2.25rem) | Composer 拡幅
+  expect(await railLayout(page)).toBe(true); // closed でも rail layout のまま (stacked 化しない)
+  const closedW = await composerWidth(page);
+  expect(closedW).toBeGreaterThan(openW); // Composer widens
+  await page.click("#rail-toggle"); // reopen works
+  expect(await composerWidth(page)).toBe(openW);
+
+  // breakpoint 境界: 641 = rail, 640 = stacked (崩れる直前の geometry)
+  await page.setViewportSize({ width: 641, height: 800 });
+  expect(await railLayout(page)).toBe(true);
+  await expect(page.locator("#rail-toggle")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)).toBe(false);
+  await page.setViewportSize({ width: 640, height: 800 });
+  expect(await railLayout(page)).toBe(false); // stacked
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)).toBe(false);
+});
+
+async function railLayout(page: Page): Promise<boolean> {
+  return page.evaluate(() => getComputedStyle(document.querySelector("#left-rail")!).flexDirection === "column");
+}
+async function composerWidth(page: Page): Promise<number> {
+  return Math.round(await page.locator("#text").evaluate((el) => el.getBoundingClientRect().width));
+}
+
+// resize は rail state を変更しない: closed のまま mobile に入り、desktop へ戻っても closed (§4/§5)。
+// 永続化なし → reload のみ open に戻る。
+test("resize: rail closed state survives resize and mobile transition, reload opens", async ({ browser }) => {
+  const page = await newComposerPage(browser);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.click("#rail-toggle"); // closed (user state)
+  expect(await page.evaluate(() => document.body.dataset.rail)).toBe("closed");
+
+  await page.setViewportSize({ width: 700, height: 800 }); // desktop 範囲内で縮める
+  expect(await page.evaluate(() => document.body.dataset.rail)).toBe("closed");
+  await page.setViewportSize({ width: 390, height: 800 }); // real mobile range
+  expect(await page.evaluate(() => document.body.dataset.rail)).toBe("closed"); // 勝手に open へ戻さない
+  await page.setViewportSize({ width: 1280, height: 800 }); // desktop へ戻る
+  expect(await page.evaluate(() => document.body.dataset.rail)).toBe("closed");
+  await expect(page.locator("#rail-toggle")).toBeVisible(); // reopen strip が残る
+  expect(await railLayout(page)).toBe(true);
+
+  await page.reload(); // reload のみ open に戻る (non-persistent, localStorage なし)
+  await expect(page.locator("#save")).toBeVisible();
+  expect(await page.evaluate(() => document.body.dataset.rail)).toBe("open");
 });
