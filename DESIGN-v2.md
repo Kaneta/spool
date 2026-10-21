@@ -1,5 +1,7 @@
 # spool DESIGN v2 (Atomic Rebuild 詳細設計)
 
+> **2026-10-21 の後続Decision:** [Spool Webを凍結し、Spool CLIを独立して維持する](decisions/use/freeze-spool-web-and-preserve-cli.md) が、Web凍結・CLI継続・旧HTTPの将来扱い・移行をしない方針を更新した。以下は当時の複合Web／PC／Bridge設計として保持する。現行の実装や確認済み保存契約まで自動的に変更するものではない。
+
 Status: 詳細設計 (2026-09-08)。実装の完成状態は `docs/checkpoint-2026-09-09.md` (checkpoint) に記録する。本書は設計であり、実装の進捗をここでは管理しない。
 本書は本リポジトリの canonical design document であり、上位基準は存在しない。本文の `Baseline` への参照 (Baseline §N 等) は、かつて制定された上位文書 `docs/spool-design-baseline-v2.md` を指す歴史的参照である。当該文書は現在の public repository には含まれず、矛盾が生じる場合は本書を正本とする。
 旧DESIGN・旧Baseline・各レビュー・legacy実装の内部構造は本書の根拠に含まない。legacy実装は現行 UX / 既存 Bridge の挙動確認のみに参照し得る。
