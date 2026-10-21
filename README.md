@@ -1,5 +1,7 @@
 # Spool
 
+**Current direction (2026-10-21):** Spool Web's completed UI is feature-frozen, while PC `spool add` / Rofi capture remains independent. The old localhost HTTP browser is a prototype, not a required base for future development. No Web-to-`~/spool/` migration or synchronization is planned now. See [accepted Decision](decisions/use/freeze-spool-web-and-preserve-cli.md).
+
 A small plain-text capture and chronological store for Web, Linux, and Windows.
 
 ## What it is
@@ -16,7 +18,7 @@ Spool is not a sync app: there is no data sync between the Web and **PC** store.
 
 - Web build: https://spool.knc.jp/
 - Browser-local, no account, no server-side storage.
-- The current Web build is being prepared for deployment at that URL.
+- The Web UI is complete and feature-frozen by product decision; this statement is not an assertion of current deployment health.
 
 ## PC Local
 
